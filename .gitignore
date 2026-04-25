@@ -1,0 +1,72 @@
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.dll
+*.pdb
+*.exe
+*.cache
+[Dd]ebug/
+[Rr]elease/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+project.lock.json
+project.fragment.lock.json
+artifacts/
+.vs/
+
+# ---- Node / Frontend ----
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+.npm/
+.yarn/
+.pnp.*
+coverage/
+
+# ---- Environment / secrets ----
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+appsettings.Development.json
+appsettings.Local.json
+
+# ---- IDE / editor ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Python (for any helper scripts) ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ---- Logs / runtime ----
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# ---- Docker ----
+# Don't ignore docker-compose.yml — that's tracked
+# But ignore local override files:
+docker-compose.override.yml
+docker-compose.local.yml
