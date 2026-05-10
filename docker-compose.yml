@@ -1,1 +1,50 @@
 
+services:
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: reservoir-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP — services connect here
+      - "15672:15672"  # Management UI — open in browser
+    environment:
+      RABBITMQ_DEFAULT_USER: reservoir
+      RABBITMQ_DEFAULT_PASS: reservoir
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - reservoir-net
+
+  postgres:
+    image: postgres:16
+    container_name: reservoir-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: reservoir
+      POSTGRES_PASSWORD: reservoir
+      POSTGRES_DB: reservoir
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reservoir -d reservoir"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - reservoir-net
+
+volumes:
+  rabbitmq-data:
+  postgres-data:
+
+networks:
+  reservoir-net:
+    driver: bridge
