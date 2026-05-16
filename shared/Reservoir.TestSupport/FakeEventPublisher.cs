@@ -1,8 +1,8 @@
-using OrderService.Messaging;
+using Reservoir.BuildingBlocks.Messaging;
 
-namespace OrderService.Tests.TestSupport;
+namespace Reservoir.TestSupport;
 
-internal sealed class FakeEventPublisher : IEventPublisher
+public sealed class FakeEventPublisher : IEventPublisher
 {
     public List<PublishedEvent> Published { get; } = new();
 
@@ -12,5 +12,5 @@ internal sealed class FakeEventPublisher : IEventPublisher
         Published.Add(new PublishedEvent(routingKey, payload, messageId, occurredAt));
     }
 
-    public record PublishedEvent(string RoutingKey, object Payload, Guid MessageId, DateTimeOffset OccurredAt);
+    public sealed record PublishedEvent(string RoutingKey, object Payload, Guid MessageId, DateTimeOffset OccurredAt);
 }

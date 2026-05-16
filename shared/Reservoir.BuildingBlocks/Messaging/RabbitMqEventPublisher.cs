@@ -1,14 +1,23 @@
-using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
+using Reservoir.BuildingBlocks.Serialization;
 
-namespace OrderService.Messaging;
+namespace Reservoir.BuildingBlocks.Messaging;
 
+/// <summary>
+/// Single-channel topic-exchange publisher with publisher confirms.
+/// Designed to be registered as a singleton; the channel is not thread-safe so
+/// publishes are serialised through an internal lock.
+///
+/// Declares <c>RabbitMqOptions.Exchange</c> (topic, durable) and
+/// <c>RabbitMqOptions.DeadLetterExchange</c> (fanout, durable) on startup —
+/// these calls are idempotent across services so it is safe for every service
+/// to declare them.
+/// </summary>
 public sealed class RabbitMqEventPublisher : IEventPublisher, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     private readonly RabbitMqOptions _options;
     private readonly ILogger<RabbitMqEventPublisher> _logger;
     private readonly IConnection _connection;
@@ -28,35 +37,26 @@ public sealed class RabbitMqEventPublisher : IEventPublisher, IDisposable
             Password = _options.Password,
             VirtualHost = _options.VirtualHost,
             AutomaticRecoveryEnabled = true,
-            DispatchConsumersAsync = false
+            DispatchConsumersAsync = false,
         };
 
-        _connection = factory.CreateConnection("order-service-publisher");
+        _connection = factory.CreateConnection(_options.PublisherClientName);
         _channel = _connection.CreateModel();
 
-        _channel.ExchangeDeclare(
-            exchange: _options.Exchange,
-            type: ExchangeType.Topic,
-            durable: true,
-            autoDelete: false);
-
-        _channel.ExchangeDeclare(
-            exchange: _options.DeadLetterExchange,
-            type: ExchangeType.Fanout,
-            durable: true,
-            autoDelete: false);
+        _channel.ExchangeDeclare(_options.Exchange, ExchangeType.Topic, durable: true, autoDelete: false);
+        _channel.ExchangeDeclare(_options.DeadLetterExchange, ExchangeType.Fanout, durable: true, autoDelete: false);
 
         _channel.ConfirmSelect();
 
         _logger.LogInformation(
-            "RabbitMQ publisher connected to {Host}:{Port}, exchange {Exchange}",
-            _options.HostName, _options.Port, _options.Exchange);
+            "RabbitMQ publisher '{Client}' connected to {Host}:{Port}, exchange {Exchange}",
+            _options.PublisherClientName, _options.HostName, _options.Port, _options.Exchange);
     }
 
     public void Publish<TEvent>(string routingKey, TEvent payload, Guid messageId, DateTimeOffset occurredAt)
         where TEvent : class
     {
-        var body = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
+        var body = JsonSerializer.SerializeToUtf8Bytes(payload, EventJsonOptions.Web);
 
         lock (_gate)
         {

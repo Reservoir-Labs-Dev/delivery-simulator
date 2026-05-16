@@ -2,9 +2,10 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using OrderService.Api;
 using OrderService.Domain;
-using OrderService.Events;
 using OrderService.Handlers;
 using OrderService.Tests.TestSupport;
+using Reservoir.BuildingBlocks.Contracts;
+using Reservoir.TestSupport;
 
 namespace OrderService.Tests;
 
@@ -56,14 +57,14 @@ public class CreateOrderHandlerTests
         _publisher.Published.Should().HaveCount(1);
         var published = _publisher.Published[0];
 
-        published.RoutingKey.Should().Be("order.created");
+        published.RoutingKey.Should().Be(RoutingKeys.OrderCreated);
         published.MessageId.Should().Be(response.EventId);
         published.OccurredAt.Should().Be(_clock.GetUtcNow());
 
         var evt = published.Payload.Should().BeOfType<OrderCreatedEvent>().Subject;
         evt.EventId.Should().Be(response.EventId);
         evt.EventId.Should().NotBe(Guid.Empty);
-        evt.EventType.Should().Be("order.created");
+        evt.EventType.Should().Be(RoutingKeys.OrderCreated);
         evt.OrderId.Should().Be(response.OrderId);
         evt.CustomerId.Should().Be("cust-0042");
         evt.TotalAmountCents.Should().Be(2000);
@@ -138,11 +139,4 @@ public class CreateOrderHandlerTests
             .Should().ThrowAsync<ArgumentException>()
             .Where(e => e.Message.Contains("Quantity", StringComparison.OrdinalIgnoreCase));
     }
-}
-
-internal sealed class FakeTimeProvider : TimeProvider
-{
-    private readonly DateTimeOffset _now;
-    public FakeTimeProvider(DateTimeOffset now) => _now = now;
-    public override DateTimeOffset GetUtcNow() => _now;
 }

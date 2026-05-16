@@ -1,4 +1,4 @@
-namespace OrderService.Events;
+namespace Reservoir.BuildingBlocks.Contracts;
 
 public sealed record OrderCreatedEvent(
     Guid EventId,

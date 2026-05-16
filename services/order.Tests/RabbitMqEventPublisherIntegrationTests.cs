@@ -3,24 +3,18 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using OrderService.Events;
-using OrderService.Messaging;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
+using Reservoir.BuildingBlocks.Contracts;
+using Reservoir.BuildingBlocks.Messaging;
+using Reservoir.TestSupport;
 
 namespace OrderService.Tests;
 
 /// <summary>
-/// Integration test: publishes a real <c>order.created</c> message through
-/// RabbitMqEventPublisher to the local broker (docker compose up).
-/// Skipped automatically when no broker is reachable on localhost:5672 so the
-/// suite still passes on a fresh checkout.
+/// Integration test: drives the real <see cref="RabbitMqEventPublisher"/> against
+/// a local broker. Skipped automatically when the broker is unreachable.
 /// </summary>
 public class RabbitMqEventPublisherIntegrationTests
 {
-    private const string ExchangeName = "orders.exchange";
-    private const string RoutingKey = "order.created";
-
     private static readonly RabbitMqOptions Options = new()
     {
         HostName = "localhost",
@@ -28,17 +22,17 @@ public class RabbitMqEventPublisherIntegrationTests
         UserName = "reservoir",
         Password = "reservoir",
         VirtualHost = "/",
-        Exchange = ExchangeName,
-        DeadLetterExchange = "orders.dlx"
+        Exchange = "orders.exchange",
+        DeadLetterExchange = "orders.dlx",
+        PublisherClientName = "order-service-tests",
     };
 
     [SkippableFact]
     public void Publish_routes_order_created_to_orders_exchange_and_consumer_receives_payload()
     {
-        Skip.IfNot(BrokerAvailable(), "RabbitMQ not reachable at localhost:5672 (run `docker compose up -d`).");
+        Skip.IfNot(BrokerProbe.IsAvailable(Options), "RabbitMQ not reachable at localhost:5672 (run `docker compose up -d`).");
 
-        var testQueue = $"order-service-tests-{Guid.NewGuid():N}";
-        using var verifier = OpenVerifierQueue(testQueue);
+        using var verifier = RabbitMqVerifierQueue.Open(Options, RoutingKeys.OrderCreated, clientName: "order-tests-verifier");
 
         using var sut = new RabbitMqEventPublisher(
             Microsoft.Extensions.Options.Options.Create(Options),
@@ -50,7 +44,7 @@ public class RabbitMqEventPublisherIntegrationTests
 
         var payload = new OrderCreatedEvent(
             EventId: eventId,
-            EventType: RoutingKey,
+            EventType: RoutingKeys.OrderCreated,
             OccurredAt: occurredAt,
             OrderId: orderId,
             CustomerId: "cust-integration",
@@ -62,109 +56,24 @@ public class RabbitMqEventPublisherIntegrationTests
             TotalAmountCents: 2000,
             Currency: "USD");
 
-        sut.Publish(RoutingKey, payload, eventId, occurredAt);
+        sut.Publish(RoutingKeys.OrderCreated, payload, eventId, occurredAt);
 
         var (props, body) = verifier.WaitForOne(TimeSpan.FromSeconds(5));
 
         props.MessageId.Should().Be(eventId.ToString());
         props.ContentType.Should().Be("application/json");
         props.DeliveryMode.Should().Be(2);
-        props.Type.Should().Be(RoutingKey);
+        props.Type.Should().Be(RoutingKeys.OrderCreated);
 
         var json = Encoding.UTF8.GetString(body);
         var parsed = JsonSerializer.Deserialize<OrderCreatedEvent>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
         parsed.Should().NotBeNull();
         parsed!.EventId.Should().Be(eventId);
-        parsed.EventType.Should().Be(RoutingKey);
+        parsed.EventType.Should().Be(RoutingKeys.OrderCreated);
         parsed.OrderId.Should().Be(orderId);
         parsed.CustomerId.Should().Be("cust-integration");
         parsed.TotalAmountCents.Should().Be(2000);
         parsed.Items.Should().HaveCount(2);
-    }
-
-    private static bool BrokerAvailable()
-    {
-        try
-        {
-            var factory = new ConnectionFactory
-            {
-                HostName = Options.HostName,
-                Port = Options.Port,
-                UserName = Options.UserName,
-                Password = Options.Password,
-                VirtualHost = Options.VirtualHost,
-                RequestedConnectionTimeout = TimeSpan.FromSeconds(2),
-                SocketReadTimeout = TimeSpan.FromSeconds(2),
-                SocketWriteTimeout = TimeSpan.FromSeconds(2)
-            };
-            using var conn = factory.CreateConnection("order-service-tests-probe");
-            return conn.IsOpen;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static VerifierQueue OpenVerifierQueue(string queueName)
-    {
-        var factory = new ConnectionFactory
-        {
-            HostName = Options.HostName,
-            Port = Options.Port,
-            UserName = Options.UserName,
-            Password = Options.Password,
-            VirtualHost = Options.VirtualHost,
-        };
-
-        var connection = factory.CreateConnection("order-service-tests-verifier");
-        var channel = connection.CreateModel();
-
-        channel.ExchangeDeclare(ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false);
-        channel.QueueDeclare(queueName, durable: false, exclusive: true, autoDelete: true);
-        channel.QueueBind(queueName, ExchangeName, RoutingKey);
-
-        return new VerifierQueue(connection, channel, queueName);
-    }
-
-    private sealed class VerifierQueue : IDisposable
-    {
-        private readonly IConnection _connection;
-        private readonly IModel _channel;
-        private readonly string _queueName;
-        private readonly EventingBasicConsumer _consumer;
-        private readonly System.Collections.Concurrent.BlockingCollection<(IBasicProperties Props, byte[] Body)> _received
-            = new();
-
-        public VerifierQueue(IConnection connection, IModel channel, string queueName)
-        {
-            _connection = connection;
-            _channel = channel;
-            _queueName = queueName;
-            _consumer = new EventingBasicConsumer(_channel);
-            _consumer.Received += (_, ea) =>
-            {
-                _received.Add((ea.BasicProperties, ea.Body.ToArray()));
-                _channel.BasicAck(ea.DeliveryTag, multiple: false);
-            };
-            _channel.BasicConsume(_queueName, autoAck: false, _consumer);
-        }
-
-        public (IBasicProperties Props, byte[] Body) WaitForOne(TimeSpan timeout)
-        {
-            if (!_received.TryTake(out var item, timeout))
-                throw new TimeoutException($"No message received on {_queueName} within {timeout}.");
-            return item;
-        }
-
-        public void Dispose()
-        {
-            try { _channel?.Close(); } catch { }
-            try { _connection?.Close(); } catch { }
-            _channel?.Dispose();
-            _connection?.Dispose();
-            _received.Dispose();
-        }
     }
 }

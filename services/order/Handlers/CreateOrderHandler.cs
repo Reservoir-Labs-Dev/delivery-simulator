@@ -1,16 +1,15 @@
-using Microsoft.EntityFrameworkCore;
 using OrderService.Api;
 using OrderService.Data;
 using OrderService.Data.Models;
 using OrderService.Domain;
-using OrderService.Events;
-using OrderService.Messaging;
+using Reservoir.BuildingBlocks.Contracts;
+using Reservoir.BuildingBlocks.Messaging;
 
 namespace OrderService.Handlers;
 
 public sealed class CreateOrderHandler
 {
-    public const string RoutingKey = "order.created";
+    public const string RoutingKey = RoutingKeys.OrderCreated;
 
     private readonly OrdersDbContext _db;
     private readonly IEventPublisher _publisher;

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OrderService.Data.Models;
+using Reservoir.BuildingBlocks.Persistence;
 
 namespace OrderService.Data;
 
