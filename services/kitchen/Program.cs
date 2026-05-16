@@ -1,41 +1,46 @@
+using KitchenService.Consumer;
+using KitchenService.Data;
+using KitchenService.Handlers;
+using KitchenService.Simulation;
+using Microsoft.EntityFrameworkCore;
+using Reservoir.BuildingBlocks.Messaging;
+
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", false);
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+builder.Services.AddDbContext<KitchenDbContext>(opt =>
+{
+    var conn = builder.Configuration.GetConnectionString("KitchenDb")
+        ?? "Host=localhost;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=kitchen";
+    opt.UseNpgsql(conn);
+});
+
+builder.Services.AddRabbitMqPublisher(builder.Configuration);
+builder.Services.PostConfigure<RabbitMqOptions>(opt => opt.PublisherClientName = "kitchen-service-publisher");
+
+builder.Services.Configure<KitchenConsumerOptions>(
+    builder.Configuration.GetSection(KitchenConsumerOptions.SectionName));
+builder.Services.Configure<KitchenSimulatorOptions>(
+    builder.Configuration.GetSection(KitchenSimulatorOptions.SectionName));
+
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IKitchenSimulator, KitchenSimulator>();
+builder.Services.AddScoped<PaymentSucceededHandler>();
+
+builder.Services.AddHostedService<KitchenConsumer>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "kitchen" }));
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+public partial class Program { }
