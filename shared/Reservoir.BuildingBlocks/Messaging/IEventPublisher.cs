@@ -1,4 +1,4 @@
-namespace OrderService.Messaging;
+namespace Reservoir.BuildingBlocks.Messaging;
 
 public interface IEventPublisher
 {

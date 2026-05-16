@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RootNamespace>OrderService.Tests</RootNamespace>
-    <AssemblyName>OrderService.Tests</AssemblyName>
+    <RootNamespace>PaymentService.Tests</RootNamespace>
+    <AssemblyName>PaymentService.Tests</AssemblyName>
     <RollForward>Major</RollForward>
   </PropertyGroup>
 
@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\order\OrderService.csproj" />
+    <ProjectReference Include="..\payment\PaymentService.csproj" />
     <ProjectReference Include="..\..\shared\Reservoir.TestSupport\Reservoir.TestSupport.csproj" />
   </ItemGroup>
 

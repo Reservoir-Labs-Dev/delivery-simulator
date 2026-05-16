@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Api;
 using OrderService.Data;
 using OrderService.Handlers;
-using OrderService.Messaging;
+using Reservoir.BuildingBlocks.Messaging;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", false);
 
@@ -17,10 +17,9 @@ builder.Services.AddDbContext<OrdersDbContext>(opt =>
     opt.UseNpgsql(conn);
 });
 
-builder.Services.Configure<RabbitMqOptions>(
-    builder.Configuration.GetSection(RabbitMqOptions.SectionName));
+builder.Services.AddRabbitMqPublisher(builder.Configuration);
+builder.Services.PostConfigure<RabbitMqOptions>(opt => opt.PublisherClientName = "order-service-publisher");
 
-builder.Services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<CreateOrderHandler>();
 
@@ -31,7 +30,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "order" }));
 
 app.MapPost("/orders", async (CreateOrderRequest request, CreateOrderHandler handler, CancellationToken ct) =>
 {
