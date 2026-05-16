@@ -1,7 +1,6 @@
 using OrderService.Api;
 using OrderService.Data;
 using OrderService.Data.Models;
-using OrderService.Domain;
 using Reservoir.BuildingBlocks.Contracts;
 using Reservoir.BuildingBlocks.Messaging;
 

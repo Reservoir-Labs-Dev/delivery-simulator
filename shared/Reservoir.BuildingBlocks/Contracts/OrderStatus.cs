@@ -1,5 +1,13 @@
-namespace OrderService.Domain;
+namespace Reservoir.BuildingBlocks.Contracts;
 
+/// <summary>
+/// Canonical status values that flow through <see cref="OrderStatusChangedNotification"/>
+/// and into the <c>orders.status</c> column. Matches the enum in ARCH-002 § 4.
+///
+/// These are pipeline-level UI statuses — distinct from each consumer service's
+/// own row-status enums (PaymentStatus, KitchenOrderStatus, DeliveryStatus),
+/// which describe the internal state of that service's persistence row.
+/// </summary>
 public static class OrderStatus
 {
     public const string Created = "CREATED";
