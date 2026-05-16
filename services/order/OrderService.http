@@ -1,6 +1,20 @@
 @OrderService_HostAddress = http://localhost:5294
 
-GET {{OrderService_HostAddress}}/weatherforecast/
+GET {{OrderService_HostAddress}}/health
 Accept: application/json
+
+###
+
+POST {{OrderService_HostAddress}}/orders
+Content-Type: application/json
+
+{
+  "customerId": "cust-0042",
+  "currency": "USD",
+  "items": [
+    { "itemId": "item-burger", "name": "Cheeseburger", "quantity": 2, "unitPriceCents": 850 },
+    { "itemId": "item-fries",  "name": "Fries",        "quantity": 1, "unitPriceCents": 300 }
+  ]
+}
 
 ###
