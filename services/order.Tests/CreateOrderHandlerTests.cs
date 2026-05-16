@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using OrderService.Api;
-using OrderService.Domain;
 using OrderService.Handlers;
 using OrderService.Tests.TestSupport;
 using Reservoir.BuildingBlocks.Contracts;
