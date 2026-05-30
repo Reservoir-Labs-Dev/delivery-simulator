@@ -56,3 +56,4 @@ The steady-state hypothesis for each of our experiments follows the Basiri et al
 - **Exp 3 (delivery failure):** H₀: failed deliveries are routed to DLQ; no messages are lost; pipeline does not hang.
 - **Exp 4 (duplicate injection):** H₀: idempotent consumers process each order exactly once despite duplicate delivery.
 - **Exp 5 (kitchen slowdown):** H₀: throughput degrades gracefully; no errors, no DLQ activity; orders complete eventually.
+
