@@ -34,6 +34,12 @@ builder.Services.AddHostedService<DeliveryConsumer>();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<DeliveryDbContext>();
+    await db.Database.EnsureCreatedAsync();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
