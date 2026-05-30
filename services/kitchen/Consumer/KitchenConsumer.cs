@@ -29,7 +29,7 @@ public sealed class KitchenConsumer : BackgroundService
         _logger = logger;
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var factory = new ConnectionFactory
         {
@@ -42,7 +42,7 @@ public sealed class KitchenConsumer : BackgroundService
             DispatchConsumersAsync = true,
         };
 
-        _connection = factory.CreateConnection("kitchen-service-consumer");
+        _connection = await OpenWithRetryAsync(factory, "kitchen-service-consumer", stoppingToken);
         _channel = _connection.CreateModel();
 
         DeclareTopology(_channel);
@@ -58,7 +58,27 @@ public sealed class KitchenConsumer : BackgroundService
             _consumer.QueueName, _consumer.ConsumesRoutingKey, _consumer.PrefetchCount);
 
         stoppingToken.Register(() => _logger.LogInformation("KitchenConsumer stopping"));
-        return Task.CompletedTask;
+    }
+
+    private async Task<IConnection> OpenWithRetryAsync(ConnectionFactory factory, string clientName, CancellationToken ct)
+    {
+        const int maxAttempts = 10;
+        var delay = TimeSpan.FromSeconds(2);
+        for (var attempt = 1; ; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                return factory.CreateConnection(clientName);
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                _logger.LogWarning(
+                    "RabbitMQ not yet reachable for {ClientName} (attempt {Attempt}/{Max}): {Message}. Retrying in {Delay}s…",
+                    clientName, attempt, maxAttempts, ex.Message, delay.TotalSeconds);
+                await Task.Delay(delay, ct);
+            }
+        }
     }
 
     private async Task OnMessageReceivedAsync(object? sender, BasicDeliverEventArgs ea)

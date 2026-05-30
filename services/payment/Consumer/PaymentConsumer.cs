@@ -29,7 +29,7 @@ public sealed class PaymentConsumer : BackgroundService
         _logger = logger;
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var factory = new ConnectionFactory
         {
@@ -42,7 +42,11 @@ public sealed class PaymentConsumer : BackgroundService
             DispatchConsumersAsync = true,
         };
 
-        _connection = factory.CreateConnection("payment-service-consumer");
+        // Retry the initial connect — docker-compose's healthcheck guards
+        // against the broker not being up at all, but there's still a brief
+        // window where AMQP listener finishes binding. AutomaticRecoveryEnabled
+        // only kicks in *after* the first successful connection.
+        _connection = await OpenWithRetryAsync(factory, "payment-service-consumer", stoppingToken);
         _channel = _connection.CreateModel();
 
         DeclareTopology(_channel);
@@ -58,7 +62,27 @@ public sealed class PaymentConsumer : BackgroundService
             _consumer.QueueName, _consumer.ConsumesRoutingKey, _consumer.PrefetchCount);
 
         stoppingToken.Register(() => _logger.LogInformation("PaymentConsumer stopping"));
-        return Task.CompletedTask;
+    }
+
+    private async Task<IConnection> OpenWithRetryAsync(ConnectionFactory factory, string clientName, CancellationToken ct)
+    {
+        const int maxAttempts = 10;
+        var delay = TimeSpan.FromSeconds(2);
+        for (var attempt = 1; ; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                return factory.CreateConnection(clientName);
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                _logger.LogWarning(
+                    "RabbitMQ not yet reachable for {ClientName} (attempt {Attempt}/{Max}): {Message}. Retrying in {Delay}s…",
+                    clientName, attempt, maxAttempts, ex.Message, delay.TotalSeconds);
+                await Task.Delay(delay, ct);
+            }
+        }
     }
 
     private async Task OnMessageReceivedAsync(object? sender, BasicDeliverEventArgs ea)

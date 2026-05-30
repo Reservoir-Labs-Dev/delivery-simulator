@@ -13,11 +13,15 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      # `ping` returns OK as soon as the Erlang node is alive — too early;
+      # the AMQP listener on :5672 may not be bound yet and consumers crash
+      # with Connection refused. `check_port_connectivity` actively probes
+      # the AMQP port so "healthy" means "ready to accept connections".
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
     networks:
       - reservoir-net
 
@@ -130,6 +134,18 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       RabbitMq__HostName: rabbitmq
+    networks:
+      - reservoir-net
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: reservoir-dashboard
+    depends_on:
+      - dashboard-api
+    ports:
+      - "3000:3000"
     networks:
       - reservoir-net
 
