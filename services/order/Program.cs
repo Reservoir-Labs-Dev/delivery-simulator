@@ -25,6 +25,15 @@ builder.Services.AddScoped<CreateOrderHandler>();
 
 var app = builder.Build();
 
+// Auto-create the orders schema + tables on startup. EnsureCreatedAsync is the
+// pragmatic dev path while there are no EF migrations on disk; swap to
+// db.Database.MigrateAsync() once Initial migrations are generated per service.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<OrdersDbContext>();
+    await db.Database.EnsureCreatedAsync();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

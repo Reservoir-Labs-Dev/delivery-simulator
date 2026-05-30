@@ -41,6 +41,98 @@ services:
     networks:
       - reservoir-net
 
+  order-service:
+    build:
+      context: .
+      dockerfile: docker/order.Dockerfile
+    container_name: reservoir-order
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5294:5294"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__OrdersDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=orders"
+      RabbitMq__HostName: rabbitmq
+    networks:
+      - reservoir-net
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: docker/payment.Dockerfile
+    container_name: reservoir-payment
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5203:5203"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PaymentsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=payments"
+      RabbitMq__HostName: rabbitmq
+    networks:
+      - reservoir-net
+
+  kitchen-service:
+    build:
+      context: .
+      dockerfile: docker/kitchen.Dockerfile
+    container_name: reservoir-kitchen
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5233:5233"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__KitchenDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=kitchen"
+      RabbitMq__HostName: rabbitmq
+    networks:
+      - reservoir-net
+
+  delivery-service:
+    build:
+      context: .
+      dockerfile: docker/delivery.Dockerfile
+    container_name: reservoir-delivery
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5097:5097"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DeliveryDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=delivery"
+      RabbitMq__HostName: rabbitmq
+    networks:
+      - reservoir-net
+
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: docker/dashboard-api.Dockerfile
+    container_name: reservoir-dashboard-api
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      RabbitMq__HostName: rabbitmq
+    networks:
+      - reservoir-net
+
 volumes:
   rabbitmq-data:
   postgres-data:

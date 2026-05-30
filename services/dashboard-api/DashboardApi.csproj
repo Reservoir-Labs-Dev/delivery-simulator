@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>DashboardApi</RootNamespace>
     <AssemblyName>DashboardApi</AssemblyName>
+    <RollForward>Major</RollForward>
   </PropertyGroup>
 
   <ItemGroup>

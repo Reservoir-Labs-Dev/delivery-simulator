@@ -1,0 +1,31 @@
+# .dockerignore — keep host-built artifacts and noise out of the Docker
+# build context. Critical: bin/ and obj/ from a Windows `dotnet build` carry
+# absolute host paths inside obj/project.assets.json, which makes the Linux
+# container's `dotnet publish --no-restore` blow up trying to resolve them.
+
+# .NET build outputs (host-specific)
+**/bin/
+**/obj/
+
+# IDE / editor caches
+**/.vs/
+**/.idea/
+**/.vscode/
+**/*.user
+**/*.suo
+
+# Test outputs
+**/TestResults/
+
+# Container persistent volumes (if you ever bind-mount these locally)
+**/postgres-data/
+**/rabbitmq-data/
+
+# VCS — not needed inside the image
+.git/
+.github/
+
+# Misc
+**/*.md
+**/UpgradeLog.htm
+**/Backup/
