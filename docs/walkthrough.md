@@ -67,6 +67,13 @@ explicit `outcome` (`SUCCESS` / `FAILED` / `DLQ`), and the SignalR
 notification surfaces both that `outcome` and a derived `retryCount`
 (`= max(0, attemptNumber - 1)`).
 
+**dashboard** ([dashboard/src/App.js](../dashboard/src/App.js)) renders
+two views over the SignalR stream (DOG-41): a default **Grid** tab that
+lays out one row per order with four columns (Order / Payment / Kitchen /
+Delivery) where each cell shows the latest status, a green/amber/red tone
+derived from `outcome`, and a `×N` retry badge when `retryCount > 0`; and
+a secondary **Log** tab with the original event-by-event stream.
+
 All inter-service traffic is via **`orders.exchange`** (topic, durable) on
 RabbitMQ. Each pipeline service has its own Postgres schema (`orders`,
 `payments`, `kitchen`, `delivery`). dashboard-api has no database — it
