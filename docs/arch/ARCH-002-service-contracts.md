@@ -23,6 +23,7 @@ Every event payload includes these fields:
 | `eventType` | `string` | Routing key value, duplicated in the payload for traceability (e.g. `"order.created"`). |
 | `occurredAt` | `string` (ISO 8601) | UTC timestamp when the event was emitted by the publisher. |
 | `orderId` | `string` (UUID) | The order this event relates to. Present on all events. |
+| `outcome` | `string` | Terminal outcome of the handler step that produced this event. One of `SUCCESS`, `FAILED`, `DLQ`. Added by DOG-40. The per-event JSON examples below omit this field for brevity — assume `outcome: "SUCCESS"` for the success events and `outcome: "FAILED"` (or `"DLQ"` if `retryExhausted: true`) for failure events. |
 
 ---
 
@@ -210,9 +211,13 @@ Each service emits an `OrderStatusChanged` notification to the SignalR hub whene
   "sourceService": "PaymentService",
   "attemptNumber": 1,
   "retryExhausted": false,
-  "metadata": {}
+  "metadata": {},
+  "retryCount": 0,
+  "outcome": "SUCCESS"
 }
 ```
+
+`retryCount` and `outcome` were added by DOG-40. `retryCount` is the number of retries that happened (`= max(0, attemptNumber - 1)`). `outcome` is one of `SUCCESS` (handler step succeeded), `FAILED` (failed but retries remain — will be retried), or `DLQ` (failed and exhausted retries — routed to DLQ). The publisher sets `outcome` on each domain event; the dashboard-api `StatusTranslator` forwards it onto the SignalR notification. `attemptNumber` and `retryExhausted` are retained for now for backward compatibility with the existing dashboard rendering; new clients should prefer `retryCount` and `outcome`.
 
 Valid `status` values, in pipeline order:
 

@@ -47,7 +47,9 @@ public sealed class StatusTranslator
                 ["totalAmountCents"] = evt.TotalAmountCents,
                 ["currency"] = evt.Currency,
                 ["customerId"] = evt.CustomerId,
-            });
+            },
+            RetryCount: 0,
+            Outcome: evt.Outcome);
     }
 
     private static OrderStatusChangedNotification FromPaymentSucceeded(byte[] body)
@@ -64,7 +66,9 @@ public sealed class StatusTranslator
             {
                 ["paymentId"] = evt.PaymentId,
                 ["amountChargedCents"] = evt.AmountChargedCents,
-            });
+            },
+            RetryCount: RetryCountFromAttempt(evt.AttemptNumber),
+            Outcome: evt.Outcome);
     }
 
     private static OrderStatusChangedNotification FromPaymentFailed(byte[] body)
@@ -80,7 +84,9 @@ public sealed class StatusTranslator
             Metadata: new Dictionary<string, object>
             {
                 ["reason"] = evt.Reason,
-            });
+            },
+            RetryCount: RetryCountFromAttempt(evt.AttemptNumber),
+            Outcome: evt.Outcome);
     }
 
     private static OrderStatusChangedNotification FromOrderReady(byte[] body)
@@ -96,7 +102,9 @@ public sealed class StatusTranslator
             Metadata: new Dictionary<string, object>
             {
                 ["prepDurationMs"] = evt.PrepDurationMs,
-            });
+            },
+            RetryCount: 0,
+            Outcome: evt.Outcome);
     }
 
     private static OrderStatusChangedNotification FromDeliveryCompleted(byte[] body)
@@ -112,7 +120,9 @@ public sealed class StatusTranslator
             Metadata: new Dictionary<string, object>
             {
                 ["deliveryId"] = evt.DeliveryId,
-            });
+            },
+            RetryCount: RetryCountFromAttempt(evt.AttemptNumber),
+            Outcome: evt.Outcome);
     }
 
     private static OrderStatusChangedNotification FromDeliveryFailed(byte[] body)
@@ -128,8 +138,13 @@ public sealed class StatusTranslator
             Metadata: new Dictionary<string, object>
             {
                 ["reason"] = evt.Reason,
-            });
+            },
+            RetryCount: RetryCountFromAttempt(evt.AttemptNumber),
+            Outcome: evt.Outcome);
     }
+
+    private static int RetryCountFromAttempt(int attemptNumber) =>
+        attemptNumber > 1 ? attemptNumber - 1 : 0;
 
     private static T Deserialize<T>(byte[] body, string typeNameForError) where T : class
     {

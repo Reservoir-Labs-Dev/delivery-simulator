@@ -7,4 +7,5 @@ public sealed record PaymentFailedEvent(
     Guid OrderId,
     string Reason,
     int AttemptNumber,
-    bool RetryExhausted);
+    bool RetryExhausted,
+    string Outcome = EventOutcome.Failed);

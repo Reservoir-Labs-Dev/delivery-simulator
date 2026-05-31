@@ -94,7 +94,8 @@ public sealed class OrderReadyHandler
                 OrderId: evt.OrderId,
                 DeliveryId: deliveryId.ToString(),
                 DeliveredAt: completedAt,
-                AttemptNumber: attemptNumber);
+                AttemptNumber: attemptNumber,
+                Outcome: EventOutcome.Success);
 
             _publisher.Publish(CompletedRoutingKey, payload, outboundEventId, completedAt);
         }
@@ -107,7 +108,8 @@ public sealed class OrderReadyHandler
                 OrderId: evt.OrderId,
                 Reason: outcome.FailureReason ?? DeliveryFailureReason.DriverUnavailable,
                 AttemptNumber: attemptNumber,
-                RetryExhausted: false);
+                RetryExhausted: false,
+                Outcome: EventOutcome.Failed);
 
             _publisher.Publish(FailedRoutingKey, payload, outboundEventId, completedAt);
         }

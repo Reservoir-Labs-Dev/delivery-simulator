@@ -7,4 +7,5 @@ public sealed record DeliveryCompletedEvent(
     Guid OrderId,
     string DeliveryId,
     DateTimeOffset DeliveredAt,
-    int AttemptNumber);
+    int AttemptNumber,
+    string Outcome = EventOutcome.Success);
