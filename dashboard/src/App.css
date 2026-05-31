@@ -225,8 +225,8 @@
   flex-shrink: 0;
 }
 
-/* ── Event log ── */
-.event-log {
+/* ── Events container (grid + log tabs) ── */
+.events {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg2);
@@ -236,21 +236,43 @@
   gap: 16px;
 }
 
-.event-log-header {
+.events-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.event-log-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: .1em;
+.events-tabs {
+  display: flex;
+  gap: 4px;
 }
 
-.event-log-clear {
+.events-tab {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 14px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+
+.events-tab:hover {
+  color: var(--text);
+  border-color: var(--border2);
+}
+
+.events-tab--active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(74,222,128,.06);
+}
+
+.events-clear {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--muted);
@@ -264,22 +286,113 @@
   transition: color .15s, border-color .15s;
 }
 
-.event-log-clear:hover:not(:disabled) {
+.events-clear:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--border2);
 }
 
-.event-log-clear:disabled {
+.events-clear:disabled {
   opacity: .4;
   cursor: not-allowed;
 }
 
-.event-log-empty {
+.events-empty {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--muted);
   padding: 24px 0;
   text-align: center;
+}
+
+/* ── Swim-lane grid ── */
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.grid-head,
+.grid-row {
+  display: grid;
+  grid-template-columns: 120px repeat(4, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.grid-head {
+  position: sticky;
+  top: 0;
+  background: var(--bg2);
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+}
+
+.grid-head-cell {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+
+.grid-row {
+  background: var(--bg3);
+  border-radius: 4px;
+  animation: fadeIn .2s ease-out;
+}
+
+.grid-cell--id,
+.grid-head-cell--id {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.grid-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+
+.grid-pill--green {
+  background: rgba(74,222,128,.12);
+  color: var(--accent);
+}
+
+.grid-pill--amber {
+  background: rgba(251,191,36,.12);
+  color: var(--amber);
+}
+
+.grid-pill--red {
+  background: rgba(248,113,113,.14);
+  color: var(--coral);
+}
+
+.grid-pill-status {
+  font-weight: 500;
+}
+
+.grid-pill-retry {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(0,0,0,.25);
+  color: inherit;
+  letter-spacing: 0;
+}
+
+.grid-pill-empty {
+  color: var(--muted);
+  opacity: .35;
+  font-size: 14px;
 }
 
 .event-list {

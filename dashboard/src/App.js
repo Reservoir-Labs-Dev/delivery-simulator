@@ -28,9 +28,49 @@ const PIPELINE_SERVICES = [
   { name: 'DeliveryService', port: '5097', color: 'purple' },
 ];
 
+// Maps a pipeline status to its swim-lane column. Statuses we don't
+// recognise fall through and are ignored by the grid (still visible in
+// the log tab).
+const COLUMN_FOR_STATUS = {
+  CREATED:              'Order',
+  PAYMENT_PROCESSING:   'Payment',
+  PAYMENT_SUCCEEDED:    'Payment',
+  PAYMENT_FAILED:       'Payment',
+  KITCHEN_PREPARING:    'Kitchen',
+  ORDER_READY:          'Kitchen',
+  DELIVERY_IN_PROGRESS: 'Delivery',
+  DELIVERED:            'Delivery',
+  DELIVERY_FAILED:      'Delivery',
+};
+
+const GRID_COLUMNS = ['Order', 'Payment', 'Kitchen', 'Delivery'];
+
+// Cell tone derivation: prefer the explicit DOG-40 outcome; otherwise
+// derive from the status. Terminal-success statuses (PAYMENT_SUCCEEDED,
+// ORDER_READY, DELIVERED, CREATED) read as green; in-progress statuses
+// (PAYMENT_PROCESSING, KITCHEN_PREPARING, DELIVERY_IN_PROGRESS) read as
+// amber; failure statuses + DLQ read as red.
+const TERMINAL_SUCCESS_STATUSES = new Set([
+  'CREATED',
+  'PAYMENT_SUCCEEDED',
+  'ORDER_READY',
+  'DELIVERED',
+]);
+
+function cellTone(cell) {
+  if (!cell) return null;
+  if (cell.outcome === 'DLQ') return 'red';
+  if (cell.outcome === 'FAILED') return 'red';
+  if (cell.status === 'PAYMENT_FAILED' || cell.status === 'DELIVERY_FAILED' || cell.status === 'DEAD_LETTERED')
+    return 'red';
+  if (TERMINAL_SUCCESS_STATUSES.has(cell.status)) return 'green';
+  return 'amber';
+}
+
 function App() {
   const [connectionState, setConnectionState] = useState('Connecting');
   const [events, setEvents] = useState([]);
+  const [activeTab, setActiveTab] = useState('grid'); // 'grid' | 'log'
   const connectionRef = useRef(null);
 
   useEffect(() => {
@@ -83,6 +123,38 @@ function App() {
     [events],
   );
 
+  // Build the swim-lane rows. Iterate events oldest-to-newest so the
+  // most recent event for each (orderId, column) pair wins.
+  const grid = useMemo(() => {
+    const byOrder = new Map();
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (!byOrder.has(e.orderId)) {
+        byOrder.set(e.orderId, {
+          orderId: e.orderId,
+          lastSeenAt: e.receivedAt,
+          Order: null,
+          Payment: null,
+          Kitchen: null,
+          Delivery: null,
+        });
+      }
+      const row = byOrder.get(e.orderId);
+      if (e.receivedAt >= row.lastSeenAt) row.lastSeenAt = e.receivedAt;
+      const col = COLUMN_FOR_STATUS[e.status];
+      if (!col) continue;
+      row[col] = {
+        status: e.status,
+        outcome: e.outcome,
+        retryCount: e.retryCount || 0,
+        updatedAt: e.updatedAt,
+      };
+    }
+    return [...byOrder.values()].sort(
+      (a, b) => b.lastSeenAt - a.lastSeenAt,
+    );
+  }, [events]);
+
   return (
     <div className="app">
       <header className="header">
@@ -97,16 +169,16 @@ function App() {
 
       <main className="main">
         <section className="hero">
-          <div className="hero-meta">DOG-35 · live event log</div>
+          <div className="hero-meta">DOG-41 · swim-lane grid</div>
           <h1 className="hero-title">
             Live order<br />
-            <span className="hero-accent">events.</span>
+            <span className="hero-accent">pipeline.</span>
           </h1>
           <p className="hero-desc">
-            Streaming <code>OrderStatusChanged</code> notifications from
-            dashboard-api's SignalR hub. POST an order against{' '}
-            <code>localhost:5294/orders</code> to see it flow through the
-            pipeline.
+            One row per order, four columns for the four pipeline stages.
+            Cells fill in as <code>OrderStatusChanged</code> notifications
+            arrive over SignalR. POST against{' '}
+            <code>localhost:5294/orders</code> to start a row.
           </p>
 
           <div className="status-grid">
@@ -148,12 +220,31 @@ function App() {
           </div>
         </section>
 
-        <section className="event-log">
-          <div className="event-log-header">
-            <div className="event-log-label">Event log</div>
+        <section className="events">
+          <div className="events-header">
+            <div className="events-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'grid'}
+                className={`events-tab ${activeTab === 'grid' ? 'events-tab--active' : ''}`}
+                onClick={() => setActiveTab('grid')}
+              >
+                Grid
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'log'}
+                className={`events-tab ${activeTab === 'log' ? 'events-tab--active' : ''}`}
+                onClick={() => setActiveTab('log')}
+              >
+                Log
+              </button>
+            </div>
             <button
               type="button"
-              className="event-log-clear"
+              className="events-clear"
               onClick={() => setEvents([])}
               disabled={events.length === 0}
             >
@@ -161,40 +252,86 @@ function App() {
             </button>
           </div>
 
-          {events.length === 0 ? (
-            <div className="event-log-empty">
-              {connectionState === 'Connected'
-                ? 'Waiting for events… POST an order to see them appear here.'
-                : connectionState === 'Reconnecting'
-                  ? 'Reconnecting to hub…'
-                  : `Not connected. Is dashboard-api running at ${HUB_URL}?`}
-            </div>
+          {activeTab === 'grid' ? (
+            grid.length === 0 ? (
+              <div className="events-empty">
+                {connectionState === 'Connected'
+                  ? 'Waiting for orders… POST one to see a row appear.'
+                  : connectionState === 'Reconnecting'
+                    ? 'Reconnecting to hub…'
+                    : `Not connected. Is dashboard-api running at ${HUB_URL}?`}
+              </div>
+            ) : (
+              <div className="grid" role="table" aria-label="Order swim-lane grid">
+                <div className="grid-head" role="row">
+                  <div className="grid-head-cell grid-head-cell--id" role="columnheader">Order</div>
+                  {GRID_COLUMNS.map((col) => (
+                    <div className="grid-head-cell" role="columnheader" key={col}>{col}</div>
+                  ))}
+                </div>
+                {grid.map((row) => (
+                  <div className="grid-row" role="row" key={row.orderId}>
+                    <div className="grid-cell grid-cell--id" role="cell">
+                      {shortOrderId(row.orderId)}
+                    </div>
+                    {GRID_COLUMNS.map((col) => {
+                      const cell = row[col];
+                      const tone = cellTone(cell);
+                      return (
+                        <div className="grid-cell" role="cell" key={col}>
+                          {cell ? (
+                            <div className={`grid-pill grid-pill--${tone}`} title={cell.status}>
+                              <span className="grid-pill-status">{cell.status}</span>
+                              {cell.retryCount > 0 && (
+                                <span className="grid-pill-retry">×{cell.retryCount}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="grid-pill-empty" aria-label="no event yet">—</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )
           ) : (
-            <ul className="event-list">
-              {events.map((e) => (
-                <li className="event-row" key={e.id}>
-                  <span className="event-time">
-                    {e.receivedAt.toLocaleTimeString(undefined, { hour12: false })}
-                    .{String(e.receivedAt.getMilliseconds()).padStart(3, '0')}
-                  </span>
-                  <span className="event-source">{e.sourceService}</span>
-                  <span
-                    className={`event-status event-status--${STATUS_TONES[e.status] || 'muted'}`}
-                  >
-                    {e.status}
-                  </span>
-                  <span className="event-order">{shortOrderId(e.orderId)}</span>
-                  {e.retryCount > 0 && (
-                    <span className="event-attempt">retry {e.retryCount}</span>
-                  )}
-                  {e.outcome && e.outcome !== 'SUCCESS' && (
-                    <span className={`event-outcome event-outcome--${e.outcome.toLowerCase()}`}>
-                      {e.outcome}
+            events.length === 0 ? (
+              <div className="events-empty">
+                {connectionState === 'Connected'
+                  ? 'Waiting for events… POST an order to see them appear here.'
+                  : connectionState === 'Reconnecting'
+                    ? 'Reconnecting to hub…'
+                    : `Not connected. Is dashboard-api running at ${HUB_URL}?`}
+              </div>
+            ) : (
+              <ul className="event-list">
+                {events.map((e) => (
+                  <li className="event-row" key={e.id}>
+                    <span className="event-time">
+                      {e.receivedAt.toLocaleTimeString(undefined, { hour12: false })}
+                      .{String(e.receivedAt.getMilliseconds()).padStart(3, '0')}
                     </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+                    <span className="event-source">{e.sourceService}</span>
+                    <span
+                      className={`event-status event-status--${STATUS_TONES[e.status] || 'muted'}`}
+                    >
+                      {e.status}
+                    </span>
+                    <span className="event-order">{shortOrderId(e.orderId)}</span>
+                    {e.retryCount > 0 && (
+                      <span className="event-attempt">retry {e.retryCount}</span>
+                    )}
+                    {e.outcome && e.outcome !== 'SUCCESS' && (
+                      <span className={`event-outcome event-outcome--${e.outcome.toLowerCase()}`}>
+                        {e.outcome}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )
           )}
         </section>
       </main>
