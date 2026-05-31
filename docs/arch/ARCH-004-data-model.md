@@ -62,7 +62,7 @@ CREATE INDEX idx_order_items_order_id ON orders.order_items (order_id);
 
 ### `orders.processed_event_ids`
 
-Idempotency table. OrderService does not consume RabbitMQ events in the happy path (it only publishes), but it does consume `OrderStatusChanged` signals to update `orders.status`. This table deduplicates those updates.
+Idempotency table. OrderService publishes `order.created` and also runs an `OrderStatusConsumer` (services/order/Consumer) that binds to every downstream status-bearing routing key on `orders.exchange` (`payment.succeeded`, `payment.failed`, `order.ready`, `delivery.completed`, `delivery.failed`) and updates `orders.status`. This table deduplicates redeliveries of those events. The older "OrderStatusChanged" wording in this section referred to the same idea — there is no separate `OrderStatusChanged` event on the bus; OrderService consumes the downstream events directly, the same routing keys the dashboard-api fans into SignalR.
 
 ```sql
 CREATE TABLE orders.processed_event_ids (
