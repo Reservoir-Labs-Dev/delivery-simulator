@@ -92,7 +92,8 @@ public sealed class OrderCreatedHandler
                 PaymentId: paymentId.ToString(),
                 AmountChargedCents: evt.TotalAmountCents,
                 Currency: evt.Currency,
-                AttemptNumber: attemptNumber);
+                AttemptNumber: attemptNumber,
+                Outcome: EventOutcome.Success);
 
             _publisher.Publish(SucceededRoutingKey, payload, outboundEventId, now);
         }
@@ -105,7 +106,8 @@ public sealed class OrderCreatedHandler
                 OrderId: evt.OrderId,
                 Reason: outcome.FailureReason ?? PaymentFailureReason.PaymentDeclined,
                 AttemptNumber: attemptNumber,
-                RetryExhausted: false);
+                RetryExhausted: false,
+                Outcome: EventOutcome.Failed);
 
             _publisher.Publish(FailedRoutingKey, payload, outboundEventId, now);
         }

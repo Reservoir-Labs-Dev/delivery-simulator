@@ -349,6 +349,25 @@
   justify-self: end;
 }
 
+.event-outcome {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  justify-self: end;
+}
+
+.event-outcome--failed {
+  color: var(--amber);
+  background: rgba(251,191,36,.12);
+}
+
+.event-outcome--dlq {
+  color: var(--red);
+  background: rgba(239,68,68,.12);
+}
+
 /* ── Footer ── */
 .footer {
   border-top: 1px solid var(--border);

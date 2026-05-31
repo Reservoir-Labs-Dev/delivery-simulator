@@ -62,7 +62,10 @@ fans the bus into a SignalR hub. It subscribes to every status-bearing
 routing key on `orders.exchange`, translates each event into an
 `OrderStatusChangedNotification`, and broadcasts to every connected browser
 via the `/hubs/orders` hub. See [ADR-007](adr/ADR-007-signalr-hub-placement-and-event-source.md)
-for the design rationale.
+for the design rationale. Since DOG-40, every domain event carries an
+explicit `outcome` (`SUCCESS` / `FAILED` / `DLQ`), and the SignalR
+notification surfaces both that `outcome` and a derived `retryCount`
+(`= max(0, attemptNumber - 1)`).
 
 All inter-service traffic is via **`orders.exchange`** (topic, durable) on
 RabbitMQ. Each pipeline service has its own Postgres schema (`orders`,

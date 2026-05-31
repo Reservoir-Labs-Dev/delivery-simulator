@@ -143,6 +143,71 @@ public class StatusTranslatorTests
         result.Should().BeNull();
     }
 
+    // ----- DOG-40: retryCount + outcome on the SignalR notification -----
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(2, 1)]
+    [InlineData(3, 2)]
+    [InlineData(0, 0)] // defensive: bad/zero attempt number clamps to 0 retries
+    public void RetryCount_is_attempt_minus_one_clamped_at_zero(int attemptNumber, int expectedRetryCount)
+    {
+        var evt = new PaymentSucceededEvent(
+            EventId: Guid.NewGuid(),
+            EventType: RoutingKeys.PaymentSucceeded,
+            OccurredAt: Now,
+            OrderId: Guid.NewGuid(),
+            PaymentId: "pay-1",
+            AmountChargedCents: 100,
+            Currency: "USD",
+            AttemptNumber: attemptNumber);
+
+        var result = _sut.Translate(RoutingKeys.PaymentSucceeded, Bytes(evt))!;
+
+        result.RetryCount.Should().Be(expectedRetryCount);
+    }
+
+    [Fact]
+    public void Success_events_carry_SUCCESS_outcome()
+    {
+        var evt = new DeliveryCompletedEvent(
+            EventId: Guid.NewGuid(), EventType: RoutingKeys.DeliveryCompleted,
+            OccurredAt: Now, OrderId: Guid.NewGuid(),
+            DeliveryId: "del-1", DeliveredAt: Now, AttemptNumber: 1);
+
+        var result = _sut.Translate(RoutingKeys.DeliveryCompleted, Bytes(evt))!;
+
+        result.Outcome.Should().Be(EventOutcome.Success);
+    }
+
+    [Fact]
+    public void Failed_outcome_passes_through_from_publisher()
+    {
+        var evt = new PaymentFailedEvent(
+            EventId: Guid.NewGuid(), EventType: RoutingKeys.PaymentFailed,
+            OccurredAt: Now, OrderId: Guid.NewGuid(),
+            Reason: "PAYMENT_DECLINED", AttemptNumber: 1, RetryExhausted: false,
+            Outcome: EventOutcome.Failed);
+
+        var result = _sut.Translate(RoutingKeys.PaymentFailed, Bytes(evt))!;
+
+        result.Outcome.Should().Be(EventOutcome.Failed);
+    }
+
+    [Fact]
+    public void Dlq_outcome_passes_through_from_publisher()
+    {
+        var evt = new DeliveryFailedEvent(
+            EventId: Guid.NewGuid(), EventType: RoutingKeys.DeliveryFailed,
+            OccurredAt: Now, OrderId: Guid.NewGuid(),
+            Reason: "DRIVER_UNAVAILABLE", AttemptNumber: 3, RetryExhausted: true,
+            Outcome: EventOutcome.Dlq);
+
+        var result = _sut.Translate(RoutingKeys.DeliveryFailed, Bytes(evt))!;
+
+        result.Outcome.Should().Be(EventOutcome.Dlq);
+    }
+
     private static byte[] Bytes<T>(T payload) where T : class =>
         JsonSerializer.SerializeToUtf8Bytes(payload, EventJsonOptions.Web);
 }

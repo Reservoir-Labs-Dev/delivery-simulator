@@ -8,4 +8,5 @@ public sealed record PaymentSucceededEvent(
     string PaymentId,
     int AmountChargedCents,
     string Currency,
-    int AttemptNumber);
+    int AttemptNumber,
+    string Outcome = EventOutcome.Success);

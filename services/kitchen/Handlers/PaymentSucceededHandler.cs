@@ -94,7 +94,8 @@ public sealed class PaymentSucceededHandler
             OrderId: evt.OrderId,
             PreparedAt: readyAt,
             PrepDurationMs: outcome.DurationMs,
-            Items: Array.Empty<ReadyItem>());
+            Items: Array.Empty<ReadyItem>(),
+            Outcome: EventOutcome.Success);
 
         _publisher.Publish(PublishesRoutingKey, payload, outboundEventId, readyAt);
         await tx.CommitAsync(ct);

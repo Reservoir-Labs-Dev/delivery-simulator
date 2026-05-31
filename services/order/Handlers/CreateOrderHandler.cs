@@ -75,7 +75,8 @@ public sealed class CreateOrderHandler
                 .Select(i => new OrderEventItem(i.ItemId, i.Name, i.Quantity, i.UnitPriceCents))
                 .ToList(),
             TotalAmountCents: order.TotalAmountCents,
-            Currency: order.Currency);
+            Currency: order.Currency,
+            Outcome: EventOutcome.Success);
 
         _publisher.Publish(RoutingKey, evt, eventId, now);
         await tx.CommitAsync(ct);

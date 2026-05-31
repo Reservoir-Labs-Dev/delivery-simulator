@@ -8,7 +8,8 @@ public sealed record OrderCreatedEvent(
     string CustomerId,
     IReadOnlyList<OrderEventItem> Items,
     int TotalAmountCents,
-    string Currency);
+    string Currency,
+    string Outcome = EventOutcome.Success);
 
 public sealed record OrderEventItem(
     string ItemId,

@@ -184,8 +184,13 @@ function App() {
                     {e.status}
                   </span>
                   <span className="event-order">{shortOrderId(e.orderId)}</span>
-                  {e.attemptNumber > 1 && (
-                    <span className="event-attempt">attempt {e.attemptNumber}</span>
+                  {e.retryCount > 0 && (
+                    <span className="event-attempt">retry {e.retryCount}</span>
+                  )}
+                  {e.outcome && e.outcome !== 'SUCCESS' && (
+                    <span className={`event-outcome event-outcome--${e.outcome.toLowerCase()}`}>
+                      {e.outcome}
+                    </span>
                   )}
                 </li>
               ))}

@@ -7,6 +7,7 @@ public sealed record OrderReadyEvent(
     Guid OrderId,
     DateTimeOffset PreparedAt,
     int PrepDurationMs,
-    IReadOnlyList<ReadyItem> Items);
+    IReadOnlyList<ReadyItem> Items,
+    string Outcome = EventOutcome.Success);
 
 public sealed record ReadyItem(string ItemId, string Name, int Quantity);
