@@ -41,7 +41,12 @@ piece of behaviour.
 ```
 
 **OrderService** ([services/order](../services/order)) exposes one HTTP
-endpoint, persists the order, and publishes `order.created`.
+endpoint, persists the order, publishes `order.created`, and runs an
+`OrderStatusConsumer` that listens to every downstream status-bearing
+routing key (`payment.succeeded`, `payment.failed`, `order.ready`,
+`delivery.completed`, `delivery.failed`) and updates `orders.orders.status`
+inside an idempotency-checked DB transaction. So the `orders` table
+reflects the live pipeline state, not just `CREATED`.
 **PaymentService** ([services/payment](../services/payment)) consumes
 `order.created`, simulates a payment (M1: always succeeds), persists a
 `payment_record`, and publishes `payment.succeeded`.
@@ -89,9 +94,15 @@ shared/
 
 services/order/                         OrderService.csproj
   Api/                                   HTTP request/response DTOs
+  Consumer/                              OrderStatusConsumer (BackgroundService) +
+                                         OrderStatusConsumerOptions — fans every
+                                         status-bearing routing key back into
+                                         orders.status updates
   Data/                                  EF DbContext + Order/OrderItem entities
+                                         + ProcessedEventId mapping
   Domain/                                OrderStatus constants
-  Handlers/CreateOrderHandler.cs         the use case
+  Handlers/CreateOrderHandler.cs         the create-order use case
+  Handlers/OrderStatusEventHandler.cs    the idempotent status-update use case
   Program.cs                             host + DI + POST /orders
 
 services/payment/                       PaymentService.csproj

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OrderService.Api;
+using OrderService.Consumer;
 using OrderService.Data;
 using OrderService.Handlers;
 using Reservoir.BuildingBlocks.Messaging;
@@ -20,8 +21,14 @@ builder.Services.AddDbContext<OrdersDbContext>(opt =>
 builder.Services.AddRabbitMqPublisher(builder.Configuration);
 builder.Services.PostConfigure<RabbitMqOptions>(opt => opt.PublisherClientName = "order-service-publisher");
 
+builder.Services.Configure<OrderStatusConsumerOptions>(
+    builder.Configuration.GetSection(OrderStatusConsumerOptions.SectionName));
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<CreateOrderHandler>();
+builder.Services.AddScoped<OrderStatusEventHandler>();
+
+builder.Services.AddHostedService<OrderStatusConsumer>();
 
 var app = builder.Build();
 
