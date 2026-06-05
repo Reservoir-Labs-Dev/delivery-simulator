@@ -1,7 +1,7 @@
 # ARCH-003: RabbitMQ Topology
 
 **Status:** Living document — update if queues or bindings change during implementation
-**Last updated:** 2026-05-04
+**Last updated:** 2026-06-05 (DOG-37: per-service DLX replaces the shared `orders.dlx`)
 
 ---
 
@@ -18,9 +18,16 @@ All entities are declared durable. All messages are published as persistent. Thi
 | Exchange | Type | Durable | Purpose |
 |---|---|---|---|
 | `orders.exchange` | `topic` | yes | Primary exchange. All services publish here. |
-| `orders.dlx` | `fanout` | yes | Dead-letter exchange. Receives messages after retry exhaustion and routes them to the appropriate DLQ. |
+| `payment.dlx` | `fanout` | yes | PaymentService dead-letter exchange. Routes `payment.queue` failures to `payment.dlq`. |
+| `kitchen.dlx` | `fanout` | yes | KitchenService dead-letter exchange. Routes `kitchen.queue` failures to `kitchen.dlq`. |
+| `delivery.dlx` | `fanout` | yes | DeliveryService dead-letter exchange. Routes `delivery.queue` failures to `delivery.dlq`. |
+| `order.dlx` | `fanout` | yes | OrderService status-consumer dead-letter exchange. Routes `order.status.queue` failures to `order.status.dlq`. |
 
-`orders.dlx` is a fanout exchange. Each DLQ is bound to it. When a message is dead-lettered, RabbitMQ preserves the original routing key in the `x-death` header — the DLQ binding does not need to match on routing key because the DLQ receives everything that dies, and the `x-death` header is used for inspection and replay.
+Each service owns a **dedicated** dead-letter exchange (`<service>.dlx`), declared by that service's consumer with exactly one DLQ bound to it. This gives **failure isolation**: a message that dies in `payment.queue` lands only in `payment.dlq`, never in another service's DLQ.
+
+A shared fanout DLX would have broken this — fanout ignores routing keys, so a single shared `orders.dlx` with all four DLQs bound would copy every dead-lettered message into *all four* DLQs at once, making per-service inspection meaningless.
+
+Each `<service>.dlx` is a fanout with a single bound DLQ, so the binding does not need a routing key. RabbitMQ preserves the original routing key in the `x-death` header for inspection and replay.
 
 ---
 
@@ -28,18 +35,19 @@ All entities are declared durable. All messages are published as persistent. Thi
 
 ### 3.1 Primary queues
 
-Each queue has an `x-dead-letter-exchange` argument pointing to `orders.dlx` and an `x-message-ttl` argument that controls the per-attempt delay during retry (see section 5).
+Each queue has an `x-dead-letter-exchange` argument pointing to its own service DLX (`<service>.dlx`) (see section 5).
 
-| Queue | Binding exchange | Routing key | Consumer service |
-|---|---|---|---|
-| `payment.queue` | `orders.exchange` | `order.created` | PaymentService |
-| `kitchen.queue` | `orders.exchange` | `payment.succeeded` | KitchenService |
-| `delivery.queue` | `orders.exchange` | `order.ready` | DeliveryService |
+| Queue | Binding exchange | Routing key | Dead-letters to | Consumer service |
+|---|---|---|---|---|
+| `payment.queue` | `orders.exchange` | `order.created` | `payment.dlx` | PaymentService |
+| `kitchen.queue` | `orders.exchange` | `payment.succeeded` | `kitchen.dlx` | KitchenService |
+| `delivery.queue` | `orders.exchange` | `order.ready` | `delivery.dlx` | DeliveryService |
+| `order.status.queue` | `orders.exchange` | (5 status keys) | `order.dlx` | OrderService |
 
-Queue declaration arguments (same for all three):
+Queue declaration arguments (same shape for all, DLX differs per service):
 
 ```
-x-dead-letter-exchange: orders.dlx
+x-dead-letter-exchange: <service>.dlx
 x-queue-type:           classic
 durable:                true
 ```
@@ -77,9 +85,10 @@ Each primary queue has a dedicated DLQ. Messages arrive here after the consumer 
 
 | DLQ | Bound to |
 |---|---|
-| `payment.dlq` | `orders.dlx` |
-| `kitchen.dlq` | `orders.dlx` |
-| `delivery.dlq` | `orders.dlx` |
+| `payment.dlq` | `payment.dlx` |
+| `kitchen.dlq` | `kitchen.dlx` |
+| `delivery.dlq` | `delivery.dlx` |
+| `order.status.dlq` | `order.dlx` |
 
 DLQ declaration arguments:
 
@@ -97,12 +106,13 @@ No service consumes DLQs automatically. They are inspected via the RabbitMQ mana
 orders.exchange  (topic)
   ├── order.created      ──► payment.queue
   ├── payment.succeeded  ──► kitchen.queue
-  └── order.ready        ──► delivery.queue
+  ├── order.ready        ──► delivery.queue
+  └── (5 status keys)    ──► order.status.queue
 
-orders.dlx  (fanout)
-  ├── ──► payment.dlq
-  ├── ──► kitchen.dlq
-  └── ──► delivery.dlq
+payment.dlx  (fanout) ──► payment.dlq
+kitchen.dlx  (fanout) ──► kitchen.dlq
+delivery.dlx (fanout) ──► delivery.dlq
+order.dlx    (fanout) ──► order.status.dlq
 
 payment.retry.N  (x-message-ttl → orders.exchange / order.created)
 kitchen.retry.N  (x-message-ttl → orders.exchange / payment.succeeded)
@@ -132,7 +142,7 @@ Consumer: idempotency check
          ack        nack (requeue=false)
                      │
                      ▼
-             orders.dlx routes to payment.retry.N
+             payment.dlx routes to payment.retry.N
              (N = current attempt, read from x-death header)
                      │
                TTL expires
@@ -142,7 +152,7 @@ Consumer: idempotency check
              (back to payment.queue)
                      │
              attempt < 3? ──► retry again
-             attempt = 3? ──► nack → orders.dlx → payment.dlq
+             attempt = 3? ──► nack → payment.dlx → payment.dlq
 ```
 
 The consumer determines the current attempt number by reading the `x-death` header on the message. On the first delivery the header is absent (attempt 1). After each nack-and-expire cycle, RabbitMQ appends to the `x-death` array — the consumer reads `x-death.Count + 1` to get the current attempt number.
@@ -154,7 +164,7 @@ var attemptNumber = GetAttemptNumber(message); // reads x-death header
 if (attemptNumber >= 3)
 {
     channel.BasicNack(deliveryTag, multiple: false, requeue: false);
-    // message goes to orders.dlx → payment.dlq
+    // message goes to payment.dlx → payment.dlq
 }
 else
 {
@@ -187,12 +197,12 @@ Each service declares its own queue, retry queues, and DLQ on startup via the `R
 Recommended startup order within each service's `BackgroundService.StartAsync`:
 
 1. Declare `orders.exchange` (topic, durable)
-2. Declare `orders.dlx` (fanout, durable)
-3. Declare the service's primary queue with `x-dead-letter-exchange: orders.dlx`
+2. Declare the service's own `<service>.dlx` (fanout, durable)
+3. Declare the service's primary queue with `x-dead-letter-exchange: <service>.dlx`
 4. Bind the primary queue to `orders.exchange` with the service's routing key
 5. Declare the service's three retry queues with appropriate TTL and DLX arguments
 6. Declare the service's DLQ
-7. Bind the DLQ to `orders.dlx`
+7. Bind the DLQ to `<service>.dlx`
 8. Begin consuming the primary queue
 
 If any declaration fails (e.g. a queue already exists with different arguments), the service should log the error and exit — mismatched topology is a configuration bug, not a transient fault.

@@ -16,6 +16,13 @@ public class RabbitMqOptions
     public string VirtualHost { get; set; } = "/";
 
     public string Exchange { get; set; } = "orders.exchange";
+
+    /// <summary>
+    /// The service's own dead-letter exchange (<c>&lt;service&gt;.dlx</c>), declared and
+    /// used only by that service's consumer. Each service sets this to its own value
+    /// (e.g. "payment.dlx") so a dead-lettered message lands only in that service's DLQ,
+    /// never in another service's. The publisher does not use or declare it.
+    /// </summary>
     public string DeadLetterExchange { get; set; } = "orders.dlx";
 
     /// <summary>

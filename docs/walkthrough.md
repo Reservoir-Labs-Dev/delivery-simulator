@@ -203,9 +203,11 @@ also set as the AMQP `MessageId`. Downstream consumers check it against
 [shared/Reservoir.BuildingBlocks/Messaging/RabbitMqEventPublisher.cs](../shared/Reservoir.BuildingBlocks/Messaging/RabbitMqEventPublisher.cs):
 
 - Singleton. One connection, one channel, kept open for the lifetime of the app.
-- Declares `orders.exchange` (topic, durable) and `orders.dlx` (fanout,
-  durable) on startup — both calls are idempotent so every service can
-  declare them safely.
+- Declares `orders.exchange` (topic, durable) on startup — an idempotent
+  call so every service can declare it safely. It does **not** declare any
+  dead-letter exchange: since DOG-37 each service owns its own
+  `<service>.dlx`, declared by that service's consumer (the publisher never
+  touches the DLX).
 - `ConfirmSelect()` enables publisher confirms; every publish waits for a
   broker ack (`WaitForConfirmsOrDie`). Without this you'd never know whether
   the broker actually persisted the message.
@@ -219,18 +221,31 @@ A `BackgroundService` that runs for the lifetime of the host:
 
 1. On `ExecuteAsync`:
    - Open connection (`DispatchConsumersAsync = true` for async handlers).
-   - Declare the same two exchanges.
-   - Declare `payment.queue` with `x-dead-letter-exchange: orders.dlx`.
+   - Declare `orders.exchange` (topic) and its own `payment.dlx` (fanout).
+   - Declare `payment.queue` with `x-dead-letter-exchange: payment.dlx`.
    - Bind `payment.queue` ← `orders.exchange` / `order.created`.
    - Declare `payment.retry.{1,2,3}` (TTL-based retry queues, per ARCH-003;
      unused in M1 but declared so the topology is complete).
-   - Declare `payment.dlq`, bound to `orders.dlx`.
+   - Declare `payment.dlq`, bound to `payment.dlx`.
    - `BasicConsume` with an `AsyncEventingBasicConsumer`.
 2. On every message:
    - Open a DI scope → resolve `OrderCreatedHandler` → call `HandleAsync`.
    - On success: `BasicAck`.
-   - On exception: `BasicNack(requeue: false)` → goes to `orders.dlx` →
-     `payment.dlq`.
+   - On exception: `BasicNack(requeue: false)` → goes to `payment.dlx` →
+     `payment.dlq` (and **only** `payment.dlq` — see DOG-37 isolation note
+     below).
+
+> **DOG-37 — per-service dead-letter isolation.** Each pipeline service
+> (payment, kitchen, delivery) and the order status-consumer owns a dedicated
+> dead-letter exchange `<service>.dlx` (fanout) with exactly its own
+> `<service>.dlq` bound to it, and its primary queue's
+> `x-dead-letter-exchange` argument points at that exchange. This replaces the
+> earlier single shared `orders.dlx`, where — because fanout ignores routing
+> keys — one dead-lettered message was copied into *every* DLQ at once.
+> Now a failure is contained to the service that produced it, so inspecting
+> `payment.dlq` shows payment failures and nothing else. The dashboard-api
+> consumer has no DLX/DLQ by design (it acks broadcast failures — see
+> ADR-007).
 
 ### 3.5 `OrderCreatedHandler.HandleAsync`
 

@@ -11,10 +11,10 @@ namespace Reservoir.BuildingBlocks.Messaging;
 /// Designed to be registered as a singleton; the channel is not thread-safe so
 /// publishes are serialised through an internal lock.
 ///
-/// Declares <c>RabbitMqOptions.Exchange</c> (topic, durable) and
-/// <c>RabbitMqOptions.DeadLetterExchange</c> (fanout, durable) on startup —
-/// these calls are idempotent across services so it is safe for every service
-/// to declare them.
+/// Declares <c>RabbitMqOptions.Exchange</c> (topic, durable) on startup — an
+/// idempotent call, so it is safe for every service to declare it. Dead-letter
+/// exchanges are a consumer concern (each service owns its own
+/// <c>&lt;service&gt;.dlx</c>) and are declared by the consumers, not here.
 /// </summary>
 public sealed class RabbitMqEventPublisher : IEventPublisher, IDisposable
 {
@@ -44,7 +44,6 @@ public sealed class RabbitMqEventPublisher : IEventPublisher, IDisposable
         _channel = _connection.CreateModel();
 
         _channel.ExchangeDeclare(_options.Exchange, ExchangeType.Topic, durable: true, autoDelete: false);
-        _channel.ExchangeDeclare(_options.DeadLetterExchange, ExchangeType.Fanout, durable: true, autoDelete: false);
 
         _channel.ConfirmSelect();
 

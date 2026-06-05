@@ -138,7 +138,7 @@ Docker Compose `depends_on` with `condition: service_healthy` should be used for
 | `payment.succeeded` | `kitchen.payment.succeeded` | `kitchen.payment.succeeded.dlq` |
 | `order.ready` | `delivery.order.ready` | `delivery.order.ready.dlq` |
 
-Each queue is bound to the `orders` exchange with its routing key. Each queue has a DLX argument pointing to a `orders.dlx` dead-letter exchange, which routes to the corresponding DLQ.
+Each queue is bound to the `orders` exchange with its routing key. Each queue has a DLX argument pointing to its **own** per-service dead-letter exchange (`<service>.dlx`), which routes to that service's DLQ — so a failure in one service never contaminates another service's DLQ.
 
 See ARCH-003 for full RabbitMQ topology detail.
 
