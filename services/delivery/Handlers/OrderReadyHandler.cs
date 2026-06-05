@@ -136,13 +136,8 @@ public sealed class OrderReadyHandler
         return evt;
     }
 
-    internal static int ReadAttemptNumber(IBasicProperties? props)
-    {
-        if (props?.Headers is null) return 1;
-        if (!props.Headers.TryGetValue("x-death", out var raw)) return 1;
-        if (raw is IList<object> deaths) return deaths.Count + 1;
-        return 1;
-    }
+    internal static int ReadAttemptNumber(IBasicProperties? props) =>
+        ConsumerRetry.ReadAttemptNumber(props);
 }
 
 public sealed record HandleResult(

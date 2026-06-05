@@ -224,16 +224,33 @@ A `BackgroundService` that runs for the lifetime of the host:
    - Declare `orders.exchange` (topic) and its own `payment.dlx` (fanout).
    - Declare `payment.queue` with `x-dead-letter-exchange: payment.dlx`.
    - Bind `payment.queue` ← `orders.exchange` / `order.created`.
-   - Declare `payment.retry.{1,2,3}` (TTL-based retry queues, per ARCH-003;
-     unused in M1 but declared so the topology is complete).
+   - Declare `payment.retry.{1,2,3}` (TTL-based retry queues, per ARCH-003 —
+     1s/2s/4s, dead-lettering back to `orders.exchange`/`order.created`).
    - Declare `payment.dlq`, bound to `payment.dlx`.
    - `BasicConsume` with an `AsyncEventingBasicConsumer`.
 2. On every message:
    - Open a DI scope → resolve `OrderCreatedHandler` → call `HandleAsync`.
    - On success: `BasicAck`.
-   - On exception: `BasicNack(requeue: false)` → goes to `payment.dlx` →
-     `payment.dlq` (and **only** `payment.dlq` — see DOG-37 isolation note
-     below).
+   - On exception: hand the delivery to the shared
+     `ConsumerRetry.HandleFailure(...)` (see DOG-38 retry note below), which
+     either republishes it to the next retry queue or — once retries are
+     exhausted — nacks it to `payment.dlx` → `payment.dlq` (and **only**
+     `payment.dlq` — see DOG-37 isolation note below).
+
+> **DOG-38 — exponential-backoff retry.** When a handler throws, the consumer
+> does **not** dead-letter immediately. The shared
+> [`ConsumerRetry`](../shared/Reservoir.BuildingBlocks/Messaging/ConsumerRetry.cs)
+> helper republishes the message to the next per-attempt retry queue
+> (`<service>.retry.{1,2,3}`, TTL **1s → 2s → 4s**) and acks the original. Each
+> retry queue's TTL expires the message back onto `orders.exchange` with the
+> original routing key, redelivering it to the primary queue. The attempt is
+> tracked in an explicit `x-retry-count` header (absent ⇒ 0 ⇒ attempt 1), which
+> the handlers also surface as `attemptNumber`/`retryCount` on the outbound
+> event (DOG-40). After the **3rd** retry the message is nacked to the
+> service's DLX → DLQ. A permanently-failing message is therefore delivered 4×
+> total (initial + 3 retries) before landing in exactly one service's DLQ. The
+> order status-consumer is the exception: it owns no retry queues and nacks
+> straight to `order.status.dlq`.
 
 > **DOG-37 — per-service dead-letter isolation.** Each pipeline service
 > (payment, kitchen, delivery) and the order status-consumer owns a dedicated
@@ -253,7 +270,8 @@ The consumer-side use case:
 
 1. Deserialize `OrderCreatedEvent` (shared contract — same bytes the
    publisher emitted).
-2. Read `attemptNumber` from the AMQP `x-death` header (1 on first delivery).
+2. Read `attemptNumber` from the AMQP `x-retry-count` header via
+   `ConsumerRetry.ReadAttemptNumber` (`= retryCount + 1`; 1 on first delivery).
 3. Idempotency check: query `payments.processed_event_ids` for `eventId`.
    If found, log + return (consumer will ack).
 4. Call `IPaymentSimulator.SimulateAsync(evt)` — random delay 100–300 ms,
@@ -315,7 +333,8 @@ Structurally identical to PaymentConsumer / KitchenConsumer. Differences:
 The terminal use case in the pipeline:
 
 1. Deserialize `OrderReadyEvent` (shared contract).
-2. Read `attemptNumber` from the AMQP `x-death` header (1 on first delivery).
+2. Read `attemptNumber` from the AMQP `x-retry-count` header via
+   `ConsumerRetry.ReadAttemptNumber` (`= retryCount + 1`; 1 on first delivery).
 3. Idempotency check against `delivery.processed_event_ids`.
 4. Record `startedAt = now`, then run `IDeliverySimulator.SimulateAsync(evt)`
    (300–700 ms `Task.Delay`, M1: always succeeds). Record `completedAt = now`.
@@ -462,7 +481,6 @@ Upcoming work (per the milestones in ARCH-001 / ADR-005):
 | Area | What it adds |
 |---|---|
 | **Dashboard frontend** (DOG-21) | React or Blazor app that calls `POST /orders` and subscribes to `/hubs/orders` on dashboard-api to render live state. The hub is ready; only the frontend client is missing. |
-| **Retry/DLQ activation** | Today exceptions go straight to DLQ via nack. The `retry.{1,2,3}` queues exist but consumers don't republish to them. Chaos work will wire that loop using the `x-death` header pattern. |
 | **Chaos engine** (ARCH-005) | A runtime knob that injects 5 failure scenarios — payment declines, delivery loops, network partitions, broker restarts, slow kitchens. Per-service simulator options already expose `SuccessProbability` / delay ranges, so most of the surface is in place. |
 | **Outbox pattern** | Replace "publish inside transaction" with an outbox table + worker. Production-grade durability; current trade-off is documented in § 3 and § 7. |
 | **`metrics.events`** (ARCH-004 § 6) | Append-only schema each service writes to for experiment data. Needed before experiments can be measured. |
@@ -473,10 +491,6 @@ Upcoming work (per the milestones in ARCH-001 / ADR-005):
 
 ## 7. Known limitations (intentional for M1)
 
-- **Retry queues are declared but unused.** ARCH-003's
-  `<service>.retry.{1,2,3}` queues are created, but the consumer doesn't
-  republish failed messages into them — exceptions go straight to DLQ via
-  nack. Chaos-engineering tasks will wire the republish logic.
 - **No outbox pattern.** Publish + DB commit are inside one transaction; if
   the publish succeeds but the commit fails the consumer sees a phantom
   event. Acceptable for thesis scope; the outbox is a documented future
