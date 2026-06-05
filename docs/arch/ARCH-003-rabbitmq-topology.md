@@ -1,7 +1,7 @@
 # ARCH-003: RabbitMQ Topology
 
 **Status:** Living document — update if queues or bindings change during implementation
-**Last updated:** 2026-06-05 (DOG-37: per-service DLX replaces the shared `orders.dlx`)
+**Last updated:** 2026-06-05 (DOG-38: exponential-backoff retry loop wired via the `x-retry-count` header)
 
 ---
 
@@ -123,10 +123,12 @@ delivery.retry.N (x-message-ttl → orders.exchange / order.ready)
 
 ## 5. Retry and dead-letter flow
 
-The retry mechanism is implemented entirely in broker topology — no sleep or delay logic in application code.
+A failed delivery is retried up to **3 times** with exponential backoff — **1s, 2s, 4s** — before it is dead-lettered. The delays themselves are implemented entirely in broker topology (the retry queues' TTL); the application code only decides *which* retry queue to send the message to and *when* to give up.
+
+This retry loop applies to the three pipeline consumers (payment, kitchen, delivery), which own retry queues. The order status-consumer has no retry queues (§3.2/§4) and nacks straight to `order.dlx → order.status.dlq`.
 
 ```
-Message arrives at payment.queue
+Message arrives at payment.queue (retryCount r, from x-retry-count header; absent = 0)
          │
          ▼
 Consumer: idempotency check
@@ -137,43 +139,51 @@ Consumer: idempotency check
    ack        process
                │
           ┌────┴────┐
-        ok?        fail?
+        ok?        fail (exception)?
           │          │
-         ack        nack (requeue=false)
-                     │
-                     ▼
-             payment.dlx routes to payment.retry.N
-             (N = current attempt, read from x-death header)
-                     │
-               TTL expires
-                     │
-                     ▼
-             orders.exchange / order.created
-             (back to payment.queue)
-                     │
-             attempt < 3? ──► retry again
-             attempt = 3? ──► nack → payment.dlx → payment.dlq
+         ack    ┌─────┴──────┐
+            r < 3?          r = 3?
+              │               │
+   publish to payment.retry.(r+1)   nack (requeue=false)
+   with x-retry-count = r+1,        → payment.dlx → payment.dlq
+   then ack the original
+              │
+        TTL expires (1s / 2s / 4s)
+              │
+              ▼
+        orders.exchange / order.created
+        (back to payment.queue, x-retry-count preserved)
 ```
 
-The consumer determines the current attempt number by reading the `x-death` header on the message. On the first delivery the header is absent (attempt 1). After each nack-and-expire cycle, RabbitMQ appends to the `x-death` array — the consumer reads `x-death.Count + 1` to get the current attempt number.
+### Attempt accounting (`x-retry-count`)
 
-Retry queue selection:
+The current attempt is tracked in an explicit **`x-retry-count`** header that the consumer sets on every republish — *not* the broker's `x-death` array. Rationale:
+
+- The retry mechanism **acks-and-republishes** rather than nacking the primary queue, so `x-death` only accrues entries from retry-queue expiry; relying on it couples the attempt count to broker-version-specific `x-death` semantics and can't be unit-tested without a live broker.
+- An explicit header is deterministic, unit-testable, and keeps `attemptNumber` (`= retryCount + 1`) consistent with the value the handlers stamp onto the event payloads (`retryCount`, DOG-40).
+
+On first delivery the header is absent → `retryCount = 0` → `attemptNumber = 1`. Each republish increments it. After the 3rd retry (`retryCount = 3`) the message is dead-lettered.
+
+Retry queue selection (shared `ConsumerRetry`, identical across the three pipeline services):
 
 ```csharp
-var attemptNumber = GetAttemptNumber(message); // reads x-death header
-if (attemptNumber >= 3)
+var retryCount = ReadRetryCount(props);        // x-retry-count header, 0 if absent
+if (retryCount >= 3)                            // 3 retries exhausted
 {
     channel.BasicNack(deliveryTag, multiple: false, requeue: false);
-    // message goes to payment.dlx → payment.dlq
+    // message goes to <service>.dlx → <service>.dlq
 }
 else
 {
-    var retryQueue = $"payment.retry.{attemptNumber}";
-    channel.BasicPublish("", retryQueue, props, body);
+    var next = retryCount + 1;                  // 1 → retry.1 (1s), 2 → retry.2 (2s), 3 → retry.3 (4s)
+    props.Headers = new Dictionary<string, object> { ["x-retry-count"] = next };
+    channel.BasicPublish("", $"<service>.retry.{next}", props, body);
     channel.BasicAck(deliveryTag, multiple: false);
-    // ack the original, publish to retry queue with TTL
+    // ack the original, publish to the next retry queue (TTL applies the delay)
 }
 ```
+
+So a permanently-failing ("poison") message is delivered 4 times in total — the initial attempt plus 3 retries at 1s, 2s and 4s — and then lands in exactly that one service's DLQ (the DOG-37 isolation guarantee).
 
 ---
 

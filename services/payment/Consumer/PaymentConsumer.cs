@@ -101,10 +101,10 @@ public sealed class PaymentConsumer : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to process message {MessageId} on '{RoutingKey}'; nacking to DLX",
+                "Failed to process message {MessageId} on '{RoutingKey}'; scheduling retry or dead-lettering",
                 messageId, ea.RoutingKey);
-            try { _channel!.BasicNack(ea.DeliveryTag, multiple: false, requeue: false); }
-            catch (Exception nackEx) { _logger.LogError(nackEx, "Failed to nack message {MessageId}", messageId); }
+            try { ConsumerRetry.HandleFailure(_channel!, ea, _consumer.RetryQueuePrefix, _logger); }
+            catch (Exception retryEx) { _logger.LogError(retryEx, "Failed to retry/nack message {MessageId}", messageId); }
         }
     }
 
@@ -121,9 +121,9 @@ public sealed class PaymentConsumer : BackgroundService
         channel.QueueDeclare(_consumer.QueueName, durable: true, exclusive: false, autoDelete: false, arguments: primaryArgs);
         channel.QueueBind(_consumer.QueueName, _broker.Exchange, _consumer.ConsumesRoutingKey);
 
-        DeclareRetryQueue(channel, "payment.retry.1", 1_000);
-        DeclareRetryQueue(channel, "payment.retry.2", 2_000);
-        DeclareRetryQueue(channel, "payment.retry.3", 4_000);
+        DeclareRetryQueue(channel, $"{_consumer.RetryQueuePrefix}.retry.1", 1_000);
+        DeclareRetryQueue(channel, $"{_consumer.RetryQueuePrefix}.retry.2", 2_000);
+        DeclareRetryQueue(channel, $"{_consumer.RetryQueuePrefix}.retry.3", 4_000);
 
         channel.QueueDeclare(_consumer.DeadLetterQueue, durable: true, exclusive: false, autoDelete: false);
         channel.QueueBind(_consumer.DeadLetterQueue, _broker.DeadLetterExchange, routingKey: string.Empty);
