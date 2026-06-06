@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
-using Reservoir.BuildingBlocks.Persistence;
 
-namespace DashboardApi.Data;
+namespace Reservoir.BuildingBlocks.Persistence;
 
 /// <summary>
-/// Owns the shared <c>chaos.chaos_config</c> table (DOG-43). The Dashboard
-/// writes; M3 consumer services will read the same table via their own
-/// DbContext over the identical schema.
+/// EF Core mapping for the shared <c>chaos.chaos_config</c> table introduced
+/// in DOG-43. The Dashboard owns writes (POST /chaos/set); M3 consumer
+/// services attach this same DbContext to read their scenario row on every
+/// message.
 /// </summary>
 public class ChaosConfigDbContext : DbContext
 {

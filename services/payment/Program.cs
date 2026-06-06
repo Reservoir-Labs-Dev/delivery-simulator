@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using PaymentService.Chaos;
 using PaymentService.Consumer;
 using PaymentService.Data;
 using PaymentService.Handlers;
 using PaymentService.Simulation;
 using Reservoir.BuildingBlocks.Messaging;
+using Reservoir.BuildingBlocks.Persistence;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", false);
 
@@ -18,6 +20,17 @@ builder.Services.AddDbContext<PaymentsDbContext>(opt =>
     opt.UseNpgsql(conn);
 });
 
+// Read-only view of chaos.chaos_config (owned by dashboard-api). Registered as
+// a DbContextFactory so the singleton DbChaosConfigReader can rent a fresh
+// context per message.
+builder.Services.AddDbContextFactory<ChaosConfigDbContext>(opt =>
+{
+    var conn = builder.Configuration.GetConnectionString("ChaosConfigDb")
+        ?? "Host=localhost;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos";
+    opt.UseNpgsql(conn);
+});
+builder.Services.AddSingleton<IChaosConfigReader, DbChaosConfigReader>();
+
 builder.Services.AddRabbitMqPublisher(builder.Configuration);
 builder.Services.PostConfigure<RabbitMqOptions>(opt => opt.PublisherClientName = "payment-service-publisher");
 
@@ -27,7 +40,12 @@ builder.Services.Configure<PaymentSimulatorOptions>(
     builder.Configuration.GetSection(PaymentSimulatorOptions.SectionName));
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<IPaymentSimulator, PaymentSimulator>();
+builder.Services.AddSingleton<PaymentSimulator>();
+builder.Services.AddSingleton<IPaymentSimulator>(sp => new ChaosAwarePaymentSimulator(
+    sp.GetRequiredService<PaymentSimulator>(),
+    sp.GetRequiredService<IChaosConfigReader>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILogger<ChaosAwarePaymentSimulator>>()));
 builder.Services.AddScoped<OrderCreatedHandler>();
 
 builder.Services.AddHostedService<PaymentConsumer>();
