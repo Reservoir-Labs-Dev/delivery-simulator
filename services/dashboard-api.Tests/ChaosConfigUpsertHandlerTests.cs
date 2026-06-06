@@ -1,10 +1,10 @@
 using System.Text.Json;
 using DashboardApi.Api;
-using DashboardApi.Data;
 using DashboardApi.Handlers;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Time.Testing;
+using Reservoir.BuildingBlocks.Persistence;
 
 namespace DashboardApi.Tests;
 

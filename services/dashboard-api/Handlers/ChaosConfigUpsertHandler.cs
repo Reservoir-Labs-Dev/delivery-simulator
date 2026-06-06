@@ -1,6 +1,5 @@
 using System.Text.Json;
 using DashboardApi.Api;
-using DashboardApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Reservoir.BuildingBlocks.Persistence;
 

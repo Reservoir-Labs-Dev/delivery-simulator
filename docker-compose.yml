@@ -79,6 +79,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__PaymentsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=payments"
+      ConnectionStrings__ChaosConfigDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos"
       RabbitMq__HostName: rabbitmq
     networks:
       - reservoir-net

@@ -1,10 +1,10 @@
 using DashboardApi.Api;
 using DashboardApi.Consumer;
-using DashboardApi.Data;
 using DashboardApi.Handlers;
 using DashboardApi.Hubs;
 using Microsoft.EntityFrameworkCore;
 using Reservoir.BuildingBlocks.Messaging;
+using Reservoir.BuildingBlocks.Persistence;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", false);
 
