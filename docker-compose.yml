@@ -129,10 +129,13 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - "5000:5000"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__ChaosConfigDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos"
       RabbitMq__HostName: rabbitmq
     networks:
       - reservoir-net
