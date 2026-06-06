@@ -1,0 +1,13 @@
+
+--------------------------------------------------------------------------------
+
+     routing_key: order.created
+        exchange: payment.dlx
+   message_count: 0
+         payload: {"eventId":"a9097647-5386-4ed3-9992-c6208ae5ce70","eventType":"order.created","occurredAt":"2026-06-06T14:35:34.9989256+00:00","orderId":"be079afd-2a12-4e28-8638-cb5515f0c6ed","customerId":"00000000-0000-0000-0000-0000000000d4","items":[{"itemId":"sku-dog42","name":"DOG-42 probe","quantity":1,"unitPriceCents":1000}],"totalAmountCents":1000,"currency":"USD","outcome":"SUCCESS"}
+   payload_bytes: 379
+payload_encoding: string
+     redelivered: True
+
+--------------------------------------------------------------------------------
+
