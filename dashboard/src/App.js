@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import ChaosPanel from './ChaosPanel';
 import './App.css';
 
 // SignalR hub URL — overrideable at build time via REACT_APP_HUB_URL.
@@ -219,6 +220,8 @@ function App() {
             ))}
           </div>
         </section>
+
+        <ChaosPanel />
 
         <section className="events">
           <div className="events-header">

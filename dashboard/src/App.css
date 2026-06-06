@@ -481,6 +481,270 @@
   background: rgba(239,68,68,.12);
 }
 
+/* ── Chaos Control Panel (DOG-49) ── */
+.chaos {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chaos-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.chaos-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 4px;
+}
+
+.chaos-title {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -.01em;
+  color: #fff;
+}
+
+.chaos-sync {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.chaos-sync-ok      { color: var(--muted); }
+.chaos-sync-pending { color: var(--muted); opacity: .6; }
+.chaos-sync-err     { color: var(--coral); cursor: help; }
+
+.chaos-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(248,113,113,.3);
+  background: rgba(248,113,113,.08);
+  border-radius: 6px;
+  color: var(--coral);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+
+.chaos-banner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--coral);
+  animation: pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.chaos-banner strong {
+  font-weight: 500;
+}
+
+.chaos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.chaos-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color .15s, background .15s;
+}
+
+.chaos-card--on {
+  border-color: rgba(248,113,113,.4);
+  background: rgba(248,113,113,.04);
+}
+
+.chaos-card--info {
+  border-style: dashed;
+}
+
+.chaos-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chaos-card-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: -.01em;
+}
+
+.chaos-card-service {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: 2px;
+}
+
+.chaos-card-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.chaos-card-badge {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  border: 1px solid var(--border2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.chaos-card-cmd {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+/* ── Chaos toggle (custom switch) ── */
+.chaos-toggle {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chaos-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.chaos-toggle-track {
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  position: relative;
+  transition: background .15s, border-color .15s;
+}
+
+.chaos-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform .15s, background .15s;
+}
+
+.chaos-toggle input:checked + .chaos-toggle-track {
+  background: rgba(248,113,113,.18);
+  border-color: var(--coral);
+}
+
+.chaos-toggle input:checked + .chaos-toggle-track .chaos-toggle-thumb {
+  transform: translateX(14px);
+  background: var(--coral);
+}
+
+.chaos-toggle input:disabled + .chaos-toggle-track {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* ── Chaos param inputs ── */
+.chaos-card-param {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.chaos-param-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.chaos-param-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chaos-param-input {
+  width: 90px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.chaos-param-input::-webkit-outer-spin-button,
+.chaos-param-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.chaos-param-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chaos-param-input:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.chaos-param-suffix {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 24px;
+}
+
 /* ── Footer ── */
 .footer {
   border-top: 1px solid var(--border);

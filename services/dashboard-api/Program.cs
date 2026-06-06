@@ -95,6 +95,28 @@ app.MapPost("/chaos/set", async (
 })
 .WithName("SetChaosConfig");
 
+// Read side for the DOG-49 Chaos Control Panel. The dashboard polls this every
+// few seconds to mirror DB state — covers the case where chaos was toggled in
+// another browser tab or directly via psql.
+app.MapGet("/chaos/list", async (
+    ChaosConfigDbContext db,
+    CancellationToken ct) =>
+{
+    var rows = await db.ChaosConfigs
+        .AsNoTracking()
+        .OrderBy(c => c.Name)
+        .Select(c => new
+        {
+            name = c.Name,
+            enabled = c.Enabled,
+            @params = c.Params,
+            updatedAt = c.UpdatedAt
+        })
+        .ToListAsync(ct);
+    return Results.Ok(rows);
+})
+.WithName("ListChaosConfig");
+
 app.MapHub<OrdersHub>(OrdersHub.Path);
 
 app.Run();
