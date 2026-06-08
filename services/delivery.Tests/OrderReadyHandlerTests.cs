@@ -13,11 +13,12 @@ public class OrderReadyHandlerTests
     private readonly FakeEventPublisher _publisher = new();
     private readonly FakeDeliverySimulator _simulator = new() { ShouldSucceed = true };
     private readonly FakeTimeProvider _clock = new(new DateTimeOffset(2026, 5, 16, 12, 0, 0, TimeSpan.Zero));
+    private readonly FakeMetricsWriter _metrics = new();
 
     private OrderReadyHandler NewHandler(out DeliveryService.Data.DeliveryDbContext db)
     {
         db = InMemoryDb.Create();
-        return new OrderReadyHandler(db, _publisher, _simulator, _clock, NullLogger<OrderReadyHandler>.Instance);
+        return new OrderReadyHandler(db, _publisher, _simulator, _clock, _metrics, NullLogger<OrderReadyHandler>.Instance);
     }
 
     private static OrderReadyEvent NewOrderReadyEvent(Guid? eventId = null, Guid? orderId = null) =>

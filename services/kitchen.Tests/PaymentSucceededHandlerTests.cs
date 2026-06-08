@@ -13,11 +13,12 @@ public class PaymentSucceededHandlerTests
     private readonly FakeEventPublisher _publisher = new();
     private readonly FakeKitchenSimulator _simulator = new() { DurationMsToReport = 250 };
     private readonly FakeTimeProvider _clock = new(new DateTimeOffset(2026, 5, 16, 12, 0, 0, TimeSpan.Zero));
+    private readonly FakeMetricsWriter _metrics = new();
 
     private PaymentSucceededHandler NewHandler(out KitchenService.Data.KitchenDbContext db)
     {
         db = InMemoryDb.Create();
-        return new PaymentSucceededHandler(db, _publisher, _simulator, _clock, NullLogger<PaymentSucceededHandler>.Instance);
+        return new PaymentSucceededHandler(db, _publisher, _simulator, _clock, _metrics, NullLogger<PaymentSucceededHandler>.Instance);
     }
 
     private static PaymentSucceededEvent NewPaymentEvent(Guid? eventId = null, Guid? orderId = null) =>
@@ -37,7 +38,7 @@ public class PaymentSucceededHandlerTests
         var handler = NewHandler(out var db);
         var inbound = NewPaymentEvent();
 
-        var result = await handler.HandleAsync(inbound, CancellationToken.None);
+        var result = await handler.HandleAsync(inbound, attemptNumber: 1, CancellationToken.None);
 
         result.Skipped.Should().BeFalse();
         result.PrepDurationMs.Should().Be(250);
@@ -68,7 +69,7 @@ public class PaymentSucceededHandlerTests
         var handler = NewHandler(out var db);
         var inbound = NewPaymentEvent();
 
-        await handler.HandleAsync(inbound, CancellationToken.None);
+        await handler.HandleAsync(inbound, attemptNumber: 1, CancellationToken.None);
 
         var processed = db.ProcessedEventIds.SingleOrDefault();
         processed.Should().NotBeNull();
@@ -82,11 +83,11 @@ public class PaymentSucceededHandlerTests
         var handler = NewHandler(out var db);
         var inbound = NewPaymentEvent();
 
-        await handler.HandleAsync(inbound, CancellationToken.None);
+        await handler.HandleAsync(inbound, attemptNumber: 1, CancellationToken.None);
         _publisher.Published.Clear();
         _simulator.CallCount = 0;
 
-        var second = await handler.HandleAsync(inbound, CancellationToken.None);
+        var second = await handler.HandleAsync(inbound, attemptNumber: 1, CancellationToken.None);
 
         second.Skipped.Should().BeTrue();
         _publisher.Published.Should().BeEmpty();
@@ -100,8 +101,8 @@ public class PaymentSucceededHandlerTests
     {
         var handler = NewHandler(out _);
 
-        var r1 = await handler.HandleAsync(NewPaymentEvent(), CancellationToken.None);
-        var r2 = await handler.HandleAsync(NewPaymentEvent(), CancellationToken.None);
+        var r1 = await handler.HandleAsync(NewPaymentEvent(), attemptNumber: 1, CancellationToken.None);
+        var r2 = await handler.HandleAsync(NewPaymentEvent(), attemptNumber: 1, CancellationToken.None);
 
         r1.OutboundEventId.Should().NotBe(Guid.Empty);
         r2.OutboundEventId.Should().NotBe(Guid.Empty);
@@ -115,7 +116,7 @@ public class PaymentSucceededHandlerTests
         var handler = NewHandler(out _);
         var inbound = NewPaymentEvent(eventId: Guid.Empty);
 
-        var act = () => handler.HandleAsync(inbound, CancellationToken.None);
+        var act = () => handler.HandleAsync(inbound, attemptNumber: 1, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*empty eventId*");

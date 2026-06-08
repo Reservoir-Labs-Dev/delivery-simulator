@@ -81,6 +81,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__PaymentsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=payments"
       ConnectionStrings__ChaosConfigDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos"
+      ConnectionStrings__MetricsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=metrics"
       RabbitMq__HostName: rabbitmq
     networks:
       - reservoir-net
@@ -101,6 +102,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__KitchenDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=kitchen"
       ConnectionStrings__ChaosConfigDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos"
+      ConnectionStrings__MetricsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=metrics"
       RabbitMq__HostName: rabbitmq
     networks:
       - reservoir-net
@@ -121,6 +123,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DeliveryDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=delivery"
       ConnectionStrings__ChaosConfigDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos"
+      ConnectionStrings__MetricsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=metrics"
       RabbitMq__HostName: rabbitmq
     networks:
       - reservoir-net
@@ -140,6 +143,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__ChaosConfigDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=chaos"
+      ConnectionStrings__MetricsDb: "Host=postgres;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=metrics"
       RabbitMq__HostName: rabbitmq
     networks:
       - reservoir-net

@@ -38,6 +38,16 @@ builder.Services.AddDbContextFactory<ChaosConfigDbContext>(opt =>
 });
 builder.Services.AddSingleton<IChaosConfigReader, DbChaosConfigReader>();
 
+// Metrics writer (DOG-51). DbContextFactory + singleton writer so handler
+// invocations get a fresh context per write without DI scope ceremony.
+builder.Services.AddDbContextFactory<MetricsDbContext>(opt =>
+{
+    var conn = builder.Configuration.GetConnectionString("MetricsDb")
+        ?? "Host=localhost;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=metrics";
+    opt.UseNpgsql(conn);
+});
+builder.Services.AddSingleton<IMetricsWriter, DbMetricsWriter>();
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<KitchenSimulator>();
 builder.Services.AddSingleton<IKitchenSimulator>(sp => new ChaosAwareKitchenSimulator(
@@ -55,6 +65,27 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<KitchenDbContext>();
     await db.Database.EnsureCreatedAsync();
+
+    // Idempotent metrics schema bootstrap (DOG-51). Same rationale as the
+    // chaos schema in dashboard-api: EnsureCreatedAsync short-circuits when
+    // other tables already exist in the shared `reservoir` database.
+    var metricsFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MetricsDbContext>>();
+    await using var metricsDb = await metricsFactory.CreateDbContextAsync();
+    await metricsDb.Database.ExecuteSqlRawAsync("""
+        CREATE SCHEMA IF NOT EXISTS metrics;
+        CREATE TABLE IF NOT EXISTS metrics.metrics (
+            id            uuid        PRIMARY KEY,
+            order_id      uuid        NOT NULL,
+            service_name  varchar(32) NOT NULL,
+            started_at    timestamp with time zone NOT NULL,
+            completed_at  timestamp with time zone NOT NULL,
+            retry_count   int         NOT NULL,
+            outcome       varchar(32) NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_metrics_order_id     ON metrics.metrics (order_id);
+        CREATE INDEX IF NOT EXISTS ix_metrics_service_name ON metrics.metrics (service_name);
+        CREATE INDEX IF NOT EXISTS ix_metrics_started_at   ON metrics.metrics (started_at DESC);
+        """);
 }
 
 if (app.Environment.IsDevelopment())
