@@ -4,6 +4,7 @@ using PaymentService.Domain;
 using PaymentService.Handlers;
 using PaymentService.Tests.TestSupport;
 using Reservoir.BuildingBlocks.Contracts;
+using Reservoir.BuildingBlocks.Persistence;
 using Reservoir.TestSupport;
 
 namespace PaymentService.Tests;
@@ -13,11 +14,12 @@ public class OrderCreatedHandlerTests
     private readonly FakeEventPublisher _publisher = new();
     private readonly FakePaymentSimulator _simulator = new() { ShouldSucceed = true };
     private readonly FakeTimeProvider _clock = new(new DateTimeOffset(2026, 5, 16, 12, 0, 0, TimeSpan.Zero));
+    private readonly FakeMetricsWriter _metrics = new();
 
     private OrderCreatedHandler NewHandler(out PaymentService.Data.PaymentsDbContext db)
     {
         db = InMemoryDb.Create();
-        return new OrderCreatedHandler(db, _publisher, _simulator, _clock, NullLogger<OrderCreatedHandler>.Instance);
+        return new OrderCreatedHandler(db, _publisher, _simulator, _clock, _metrics, NullLogger<OrderCreatedHandler>.Instance);
     }
 
     private static OrderCreatedEvent NewOrderEvent(Guid? eventId = null, Guid? orderId = null, int total = 2000)
@@ -103,6 +105,14 @@ public class OrderCreatedHandlerTests
         _simulator.CallCount.Should().Be(0);
         db.PaymentRecords.Count().Should().Be(1);
         db.ProcessedEventIds.Count().Should().Be(1);
+
+        // DOG-51: both invocations record a metric row — first SUCCESS, second SKIPPED_DUPLICATE.
+        _metrics.Written.Should().HaveCount(2);
+        _metrics.Written[0].ServiceName.Should().Be("payment");
+        _metrics.Written[0].Outcome.Should().Be(MetricOutcomes.Success);
+        _metrics.Written[1].Outcome.Should().Be(MetricOutcomes.SkippedDuplicate);
+        _metrics.Written[1].OrderId.Should().Be(inbound.OrderId);
+        _metrics.Written[1].RetryCount.Should().Be(0);
     }
 
     [Fact]

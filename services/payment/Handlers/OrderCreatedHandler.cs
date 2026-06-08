@@ -18,10 +18,13 @@ public sealed class OrderCreatedHandler
     public const string SucceededRoutingKey = RoutingKeys.PaymentSucceeded;
     public const string FailedRoutingKey = RoutingKeys.PaymentFailed;
 
+    private const string ServiceName = "payment";
+
     private readonly PaymentsDbContext _db;
     private readonly IEventPublisher _publisher;
     private readonly IPaymentSimulator _simulator;
     private readonly TimeProvider _clock;
+    private readonly IMetricsWriter _metrics;
     private readonly ILogger<OrderCreatedHandler> _logger;
 
     public OrderCreatedHandler(
@@ -29,12 +32,14 @@ public sealed class OrderCreatedHandler
         IEventPublisher publisher,
         IPaymentSimulator simulator,
         TimeProvider clock,
+        IMetricsWriter metrics,
         ILogger<OrderCreatedHandler> logger)
     {
         _db = db;
         _publisher = publisher;
         _simulator = simulator;
         _clock = clock;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -50,80 +55,100 @@ public sealed class OrderCreatedHandler
         if (evt.EventId == Guid.Empty)
             throw new InvalidOperationException("OrderCreatedEvent has empty eventId");
 
-        var alreadyProcessed = await _db.ProcessedEventIds
-            .AsNoTracking()
-            .AnyAsync(e => e.EventId == evt.EventId, ct);
+        var startedAt = _clock.GetUtcNow();
+        var retryCount = attemptNumber - 1;
 
-        if (alreadyProcessed)
+        try
         {
-            _logger.LogInformation("Skipping duplicate event {EventId} for order {OrderId}", evt.EventId, evt.OrderId);
-            return HandleResult.ForSkipped(evt.EventId);
+            var alreadyProcessed = await _db.ProcessedEventIds
+                .AsNoTracking()
+                .AnyAsync(e => e.EventId == evt.EventId, ct);
+
+            if (alreadyProcessed)
+            {
+                _logger.LogInformation("Skipping duplicate event {EventId} for order {OrderId}", evt.EventId, evt.OrderId);
+                await _metrics.WriteAsync(
+                    evt.OrderId, ServiceName, startedAt, _clock.GetUtcNow(),
+                    retryCount, MetricOutcomes.SkippedDuplicate, ct);
+                return HandleResult.ForSkipped(evt.EventId);
+            }
+
+            var outcome = await _simulator.SimulateAsync(evt, ct);
+            var now = _clock.GetUtcNow();
+            var paymentId = Guid.NewGuid();
+            var outboundEventId = Guid.NewGuid();
+
+            var record = new PaymentRecord
+            {
+                Id = paymentId,
+                OrderId = evt.OrderId,
+                Status = outcome.Success ? PaymentStatus.Succeeded : PaymentStatus.Failed,
+                AmountChargedCents = outcome.Success ? evt.TotalAmountCents : 0,
+                Currency = evt.Currency,
+                AttemptNumber = attemptNumber,
+                FailureReason = outcome.FailureReason,
+                CreatedAt = now,
+            };
+
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+            _db.PaymentRecords.Add(record);
+            _db.ProcessedEventIds.Add(new ProcessedEventId { EventId = evt.EventId, ProcessedAt = now });
+            await _db.SaveChangesAsync(ct);
+
+            if (outcome.Success)
+            {
+                var payload = new PaymentSucceededEvent(
+                    EventId: outboundEventId,
+                    EventType: SucceededRoutingKey,
+                    OccurredAt: now,
+                    OrderId: evt.OrderId,
+                    PaymentId: paymentId.ToString(),
+                    AmountChargedCents: evt.TotalAmountCents,
+                    Currency: evt.Currency,
+                    AttemptNumber: attemptNumber,
+                    Outcome: EventOutcome.Success);
+
+                _publisher.Publish(SucceededRoutingKey, payload, outboundEventId, now);
+            }
+            else
+            {
+                var payload = new PaymentFailedEvent(
+                    EventId: outboundEventId,
+                    EventType: FailedRoutingKey,
+                    OccurredAt: now,
+                    OrderId: evt.OrderId,
+                    Reason: outcome.FailureReason ?? PaymentFailureReason.PaymentDeclined,
+                    AttemptNumber: attemptNumber,
+                    RetryExhausted: false,
+                    Outcome: EventOutcome.Failed);
+
+                _publisher.Publish(FailedRoutingKey, payload, outboundEventId, now);
+            }
+
+            await tx.CommitAsync(ct);
+
+            _logger.LogInformation(
+                "Processed {InEventId} for order {OrderId} → {Outcome} (paymentId={PaymentId}, attempt={Attempt})",
+                evt.EventId, evt.OrderId, outcome.Success ? "SUCCEEDED" : "FAILED", paymentId, attemptNumber);
+
+            await _metrics.WriteAsync(
+                evt.OrderId, ServiceName, startedAt, _clock.GetUtcNow(),
+                retryCount, MetricOutcomes.Success, ct);
+
+            return new HandleResult(
+                InboundEventId: evt.EventId,
+                OutboundEventId: outboundEventId,
+                PaymentId: paymentId,
+                Status: record.Status,
+                Skipped: false);
         }
-
-        var outcome = await _simulator.SimulateAsync(evt, ct);
-        var now = _clock.GetUtcNow();
-        var paymentId = Guid.NewGuid();
-        var outboundEventId = Guid.NewGuid();
-
-        var record = new PaymentRecord
+        catch (Exception) when (!ct.IsCancellationRequested)
         {
-            Id = paymentId,
-            OrderId = evt.OrderId,
-            Status = outcome.Success ? PaymentStatus.Succeeded : PaymentStatus.Failed,
-            AmountChargedCents = outcome.Success ? evt.TotalAmountCents : 0,
-            Currency = evt.Currency,
-            AttemptNumber = attemptNumber,
-            FailureReason = outcome.FailureReason,
-            CreatedAt = now,
-        };
-
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
-        _db.PaymentRecords.Add(record);
-        _db.ProcessedEventIds.Add(new ProcessedEventId { EventId = evt.EventId, ProcessedAt = now });
-        await _db.SaveChangesAsync(ct);
-
-        if (outcome.Success)
-        {
-            var payload = new PaymentSucceededEvent(
-                EventId: outboundEventId,
-                EventType: SucceededRoutingKey,
-                OccurredAt: now,
-                OrderId: evt.OrderId,
-                PaymentId: paymentId.ToString(),
-                AmountChargedCents: evt.TotalAmountCents,
-                Currency: evt.Currency,
-                AttemptNumber: attemptNumber,
-                Outcome: EventOutcome.Success);
-
-            _publisher.Publish(SucceededRoutingKey, payload, outboundEventId, now);
+            await _metrics.WriteAsync(
+                evt.OrderId, ServiceName, startedAt, _clock.GetUtcNow(),
+                retryCount, MetricOutcomes.Failed, CancellationToken.None);
+            throw;
         }
-        else
-        {
-            var payload = new PaymentFailedEvent(
-                EventId: outboundEventId,
-                EventType: FailedRoutingKey,
-                OccurredAt: now,
-                OrderId: evt.OrderId,
-                Reason: outcome.FailureReason ?? PaymentFailureReason.PaymentDeclined,
-                AttemptNumber: attemptNumber,
-                RetryExhausted: false,
-                Outcome: EventOutcome.Failed);
-
-            _publisher.Publish(FailedRoutingKey, payload, outboundEventId, now);
-        }
-
-        await tx.CommitAsync(ct);
-
-        _logger.LogInformation(
-            "Processed {InEventId} for order {OrderId} → {Outcome} (paymentId={PaymentId}, attempt={Attempt})",
-            evt.EventId, evt.OrderId, outcome.Success ? "SUCCEEDED" : "FAILED", paymentId, attemptNumber);
-
-        return new HandleResult(
-            InboundEventId: evt.EventId,
-            OutboundEventId: outboundEventId,
-            PaymentId: paymentId,
-            Status: record.Status,
-            Skipped: false);
     }
 
     private static OrderCreatedEvent DeserializePayload(byte[] body)

@@ -20,6 +20,15 @@ builder.Services.AddDbContext<ChaosConfigDbContext>(opt =>
     opt.UseNpgsql(conn);
 });
 
+// Read-only access to metrics.metrics (owned by the consumer services).
+// dashboard-api only needs to stream rows out via /metrics/export.csv.
+builder.Services.AddDbContextFactory<MetricsDbContext>(opt =>
+{
+    var conn = builder.Configuration.GetConnectionString("MetricsDb")
+        ?? "Host=localhost;Port=5432;Database=reservoir;Username=reservoir;Password=reservoir;Search Path=metrics";
+    opt.UseNpgsql(conn);
+});
+
 builder.Services.Configure<RabbitMqOptions>(
     builder.Configuration.GetSection(RabbitMqOptions.SectionName));
 builder.Services.Configure<DashboardConsumerOptions>(
@@ -116,6 +125,49 @@ app.MapGet("/chaos/list", async (
     return Results.Ok(rows);
 })
 .WithName("ListChaosConfig");
+
+// DOG-51 metrics CSV export. M4 experiments curl this to derive per-stage
+// latency, retry distribution, and DLQ rates. Returned as text/csv with a
+// stable header so spreadsheets and pandas read it without configuration.
+// The query streams rows ordered by started_at ASC so an analyst can pipe
+// the output into pandas without re-sorting.
+app.MapGet("/metrics/export.csv", async (
+    IDbContextFactory<MetricsDbContext> metricsFactory,
+    CancellationToken ct) =>
+{
+    await using var db = await metricsFactory.CreateDbContextAsync(ct);
+    var rows = await db.Metrics
+        .AsNoTracking()
+        .OrderBy(m => m.StartedAt)
+        .Select(m => new
+        {
+            m.Id,
+            m.OrderId,
+            m.ServiceName,
+            m.StartedAt,
+            m.CompletedAt,
+            m.RetryCount,
+            m.Outcome
+        })
+        .ToListAsync(ct);
+
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("id,order_id,service_name,started_at,completed_at,duration_ms,retry_count,outcome");
+    foreach (var r in rows)
+    {
+        var durationMs = (long)(r.CompletedAt - r.StartedAt).TotalMilliseconds;
+        sb.Append(r.Id).Append(',')
+          .Append(r.OrderId).Append(',')
+          .Append(r.ServiceName).Append(',')
+          .Append(r.StartedAt.ToString("O")).Append(',')
+          .Append(r.CompletedAt.ToString("O")).Append(',')
+          .Append(durationMs).Append(',')
+          .Append(r.RetryCount).Append(',')
+          .Append(r.Outcome).Append('\n');
+    }
+    return Results.Text(sb.ToString(), "text/csv");
+})
+.WithName("ExportMetricsCsv");
 
 app.MapHub<OrdersHub>(OrdersHub.Path);
 
