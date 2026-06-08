@@ -70,3 +70,7 @@ logs/
 # But ignore local override files:
 docker-compose.override.yml
 docker-compose.local.yml
+
+# ---- Experiment runs (DOG-52) ----
+# Per-run output is developer-local; the script and README are tracked.
+docs/experiments/runs/
