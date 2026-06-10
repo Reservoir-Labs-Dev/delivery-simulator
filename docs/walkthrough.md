@@ -519,6 +519,18 @@ RabbitMQ). This is the "contain + preserve" half of resilience; the "rescue"
 drain DLQ) halves are queued as follow-up experiments. See
 [`experiments/exp3-delivery-dlq.md`](experiments/exp3-delivery-dlq.md).
 
+The third chaos experiment, **duplicate storm** (DOG-56), publishes every
+`order.created` 3× with the same `EventId` (`duplicate_events`, count=3),
+modelling at-least-once redelivery. Payment received the full storm (150 events =
+50 × 3) but applied **exactly 50 charges across 50 distinct orders — 0
+double-charges**, confirmed against `payments.payment_records`, not just metrics:
+each order resolved to 1 SUCCESS + 2 SKIPPED_DUPLICATE via the
+`processed_event_ids` ledger. Skips are cheap (p50 = 3ms) and happen *before* any
+publish, so duplicates never propagate — kitchen and delivery each saw exactly 50
+events at baseline latency, with 0 failures/retries and an empty `payment.dlq`.
+This is the **idempotent-consumer / effectively-once** property. See
+[`experiments/exp4-duplicate-storm.md`](experiments/exp4-duplicate-storm.md).
+
 ---
 
 ## 7. Known limitations (intentional for M1)
