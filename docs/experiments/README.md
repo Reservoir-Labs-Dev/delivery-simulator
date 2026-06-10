@@ -7,15 +7,23 @@ baseline and every chaos scenario (DOG-53..DOG-57) — only the CLI args change.
 ## What it does
 
 1. Health-checks `order-service` and `dashboard-api`.
-2. Resets every row in `chaos.chaos_config` to disabled, then enables the
-   target scenario via the dashboard-api PATCH endpoint.
-3. Records `run_start_utc` — the lower bound of the metrics window.
-4. POSTs `--orders` orders, optionally paced by `--rate` (orders/sec).
-5. Waits for the pipeline to drain. "Drained" = no new row landed in
+2. Resets every row in `chaos.chaos_config` to disabled.
+3. **Warmup (discarded):** POSTs `--warmup` orders with chaos still off and
+   waits for them to drain, to warm JIT / EF Core query compilation /
+   connection pools, then settles for `COOLDOWN_SEC`. These rows start before
+   `run_start_utc`, so they fall outside the measurement window and are
+   excluded automatically. This controls the cold-service confound noted in
+   `docs/research/experimental-design-summary.md` (internal validity) so the
+   measured numbers reflect steady state, and gives every experiment the same
+   protocol for fair baseline-vs-chaos comparison.
+4. Enables the target scenario via the dashboard-api `/chaos/set` endpoint.
+5. Records `run_start_utc` — the lower bound of the metrics window.
+6. POSTs `--orders` orders, optionally paced by `--rate` (orders/sec).
+7. Waits for the pipeline to drain. "Drained" = no new row landed in
    `metrics.metrics` (filtered to the run window) for `DRAIN_IDLE_SEC`
    consecutive seconds, or `DRAIN_TIMEOUT_SEC` total elapsed.
-6. Records `run_end_utc`, disables chaos.
-7. Dumps the metric rows in `[run_start_utc, run_end_utc]` to
+8. Records `run_end_utc`, disables chaos.
+9. Dumps the metric rows in `[run_start_utc, run_end_utc]` to
    `docs/experiments/runs/<experiment-id>-<runtag>/metrics.csv` and writes a
    `summary.txt` with per-service outcome counts, p50/p95 durations, retry
    distribution, and DLQ-bound count.
@@ -57,11 +65,13 @@ scripts/run-experiment.sh \
 | `--scenario` | `none` | Chaos scenario key — must match a row in `chaos.chaos_config`. |
 | `--params` | `{}` | JSON blob written to `chaos.chaos_config.params`. |
 | `--rate` | unbounded | Orders/sec. Computed via `awk` as `1/rate` sleep between POSTs. |
+| `--warmup` | `20` | Discarded warmup orders posted (chaos off) before the measured batch. `0` disables warmup. |
 
 ### Env overrides
 
 `ORDER_API`, `DASHBOARD_API`, `PG_CONTAINER`, `PG_USER`, `PG_DB`,
 `DRAIN_IDLE_SEC` (default 5), `DRAIN_TIMEOUT_SEC` (default 180),
+`WARMUP_ORDERS` (default 20), `COOLDOWN_SEC` (default 3),
 `OUT_ROOT` (default `docs/experiments/runs`).
 
 ### Exit codes

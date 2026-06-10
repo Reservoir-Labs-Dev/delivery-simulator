@@ -487,6 +487,17 @@ Upcoming work (per the milestones in ARCH-001 / ADR-005):
 | **`order.ready` items propagation** | See § 7 below. Subscribing Kitchen to `order.created` is the cleanest fix. |
 | **In-flight statuses** (`PAYMENT_PROCESSING`, `KITCHEN_PREPARING`, `DELIVERY_IN_PROGRESS`) | ARCH-002 § 4 lists these but the bus only carries completion events. Adding explicit "started" events to the bus would let dashboard-api emit them too. |
 
+### M4 — Experiments & Metrics (in progress)
+
+Each metric-writing stage (payment, kitchen, delivery) now persists a row to
+`metrics.metrics` per order (DOG-51), and `scripts/run-experiment.sh` drives a
+labelled experiment end-to-end and dumps a per-run CSV + summary (DOG-52). The
+**happy-path baseline** has been captured (DOG-53) — 50 orders, no chaos, 100%
+success, per-stage avg processing of payment ≈ 242ms / kitchen ≈ 373ms /
+delivery ≈ 523ms (measured warm, after a discarded warmup batch). See
+[`experiments/exp1-baseline.md`](experiments/exp1-baseline.md);
+it is the control for the chaos experiments (DOG-54..DOG-57).
+
 ---
 
 ## 7. Known limitations (intentional for M1)
