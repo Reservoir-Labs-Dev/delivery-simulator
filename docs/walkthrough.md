@@ -531,6 +531,18 @@ events at baseline latency, with 0 failures/retries and an empty `payment.dlq`.
 This is the **idempotent-consumer / effectively-once** property. See
 [`experiments/exp4-duplicate-storm.md`](experiments/exp4-duplicate-storm.md).
 
+The fourth chaos experiment, **kitchen slowdown** (DOG-57), multiplies kitchen
+prep time by 10 (`kitchen_slowdown`, factor=10) — a pure latency-degradation
+fault (nothing throws). The SLA is defined on **per-stage kitchen p95 < 1s** (not
+e2e, which the baseline burst already breaches via queue wait), so a breach is
+attributable to the fault. Kitchen avg rose 373ms → 3494ms (p95 4792ms) and
+**all 50 orders breached the SLA (100% vs 0% baseline)**, while payment and
+delivery stayed at baseline latency with 100% success, 0 retries, 0 DLQ — the
+slowdown is **isolated** to one stage and absorbed as latency, not errors. As a
+secondary effect, under the unbounded burst the slow stage became a bottleneck
+and e2e latency inflated super-linearly (avg 8s → 87s) via backpressure. See
+[`experiments/exp5-kitchen-slowdown.md`](experiments/exp5-kitchen-slowdown.md).
+
 ---
 
 ## 7. Known limitations (intentional for M1)
