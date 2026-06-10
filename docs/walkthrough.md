@@ -507,6 +507,18 @@ latency *dropped* vs baseline (avg 6.1s vs 8.0s, p95 6.4s vs 13.9s) because the
 5s delay paces the burst and removes downstream queue contention. See
 [`experiments/exp2-payment-delay.md`](experiments/exp2-payment-delay.md).
 
+The second chaos experiment, **delivery failure loop** (DOG-55), forces delivery
+to throw on every attempt (total outage). The result is read as three
+fault-tolerance properties rather than the trivial "it failed": **isolation**
+(payment + kitchen stay 100% successful at baseline latency — the outage doesn't
+propagate), **bounded retry** (every order makes exactly 4 attempts with 1/2/4s
+backoff, ~7s, then stops — no infinite loop), and **zero loss** (all 50
+undeliverable orders preserved in `delivery.dlq`, cross-checked against
+RabbitMQ). This is the "contain + preserve" half of resilience; the "rescue"
+(DOG-133, partial failure → retry rescue rate) and "recover" (DOG-134, heal +
+drain DLQ) halves are queued as follow-up experiments. See
+[`experiments/exp3-delivery-dlq.md`](experiments/exp3-delivery-dlq.md).
+
 ---
 
 ## 7. Known limitations (intentional for M1)
