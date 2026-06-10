@@ -4,14 +4,18 @@
 #
 # Drives one labelled chaos experiment end-to-end:
 #   1. preflight: order-service + dashboard-api healthy
-#   2. reset every chaos row to disabled, then enable the target scenario
-#   3. capture run_start_utc (used to slice the metrics window)
-#   4. POST N orders at an optional rate (default: as fast as bash + curl will go)
-#   5. wait for the pipeline to drain — declare drained when no new metric row
+#   2. reset every chaos row to disabled
+#   3. warmup: POST $WARMUP_ORDERS orders with chaos off and let them drain, to
+#      warm JIT/EF/pools — these rows start before run_start_utc so they are
+#      excluded from the measurement window; then a $COOLDOWN_SEC settle
+#   4. enable the target scenario
+#   5. capture run_start_utc (used to slice the metrics window)
+#   6. POST N orders at an optional rate (default: as fast as bash + curl will go)
+#   7. wait for the pipeline to drain — declare drained when no new metric row
 #      lands in the time window for $DRAIN_IDLE_SEC consecutive seconds, or
 #      $DRAIN_TIMEOUT_SEC has elapsed
-#   6. capture run_end_utc; disable chaos
-#   7. dump metrics rows in [run_start_utc, run_end_utc] to a per-run folder,
+#   8. capture run_end_utc; disable chaos
+#   9. dump metrics rows in [run_start_utc, run_end_utc] to a per-run folder,
 #      compute per-service counts + p50/p95 durations, write summary.txt
 #
 # This runs the same way for the baseline (--scenario none) and every chaos
@@ -46,6 +50,7 @@ ORDERS=50
 SCENARIO="none"
 PARAMS='{}'
 RATE_PER_SEC=""
+WARMUP_ORDERS="${WARMUP_ORDERS:-20}"
 
 ORDER_API="${ORDER_API:-http://localhost:5294}"
 DASHBOARD_API="${DASHBOARD_API:-http://localhost:5000}"
@@ -58,6 +63,10 @@ PG_DB="${PG_DB:-reservoir}"
 # total seconds — whichever comes first.
 DRAIN_IDLE_SEC="${DRAIN_IDLE_SEC:-5}"
 DRAIN_TIMEOUT_SEC="${DRAIN_TIMEOUT_SEC:-180}"
+
+# Settle time after the warmup batch drains, before the measured window opens.
+# Also the documented inter-experiment cooldown (run experiments sequentially).
+COOLDOWN_SEC="${COOLDOWN_SEC:-3}"
 
 OUT_ROOT="${OUT_ROOT:-docs/experiments/runs}"
 
@@ -75,6 +84,7 @@ while [ $# -gt 0 ]; do
     --scenario)      SCENARIO="$2";      shift 2 ;;
     --params)        PARAMS="$2";        shift 2 ;;
     --rate)          RATE_PER_SEC="$2";  shift 2 ;;
+    --warmup)        WARMUP_ORDERS="$2"; shift 2 ;;
     -h|--help)       usage ;;
     *) echo "unknown arg: $1" >&2; usage ;;
   esac
@@ -82,6 +92,7 @@ done
 
 [ -n "$EXPERIMENT_ID" ] || { echo "ERROR: --experiment-id is required" >&2; usage; }
 [[ "$ORDERS" =~ ^[0-9]+$ ]] || { echo "ERROR: --orders must be an integer" >&2; exit 1; }
+[[ "$WARMUP_ORDERS" =~ ^[0-9]+$ ]] || { echo "ERROR: --warmup must be an integer" >&2; exit 1; }
 
 RUN_TAG="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="$OUT_ROOT/${EXPERIMENT_ID}-${RUN_TAG}"
@@ -97,6 +108,7 @@ log "experiment_id = $EXPERIMENT_ID"
 log "orders        = $ORDERS"
 log "scenario      = $SCENARIO"
 log "params        = $PARAMS"
+log "warmup        = $WARMUP_ORDERS orders (discarded)"
 log "rate          = ${RATE_PER_SEC:-unbounded} orders/sec"
 log "run_dir       = $RUN_DIR"
 
@@ -134,7 +146,77 @@ reset_chaos() {
   done
 }
 
+# ---- Order + drain helpers -------------------------------------------------
+
+post_order() {
+  local i="$1"
+  curl -fsS -X POST -H 'Content-Type: application/json' \
+    -d "{\"customerId\":\"cust-${EXPERIMENT_ID}-${RUN_TAG}-${i}\",\"currency\":\"USD\",\"items\":[{\"itemId\":\"item-${i}\",\"name\":\"Item ${i}\",\"quantity\":1,\"unitPriceCents\":900}]}" \
+    "$ORDER_API/orders" >/dev/null
+}
+
+# Post $1 orders with id suffix prefix $2, optionally paced at $RATE_PER_SEC
+# (sleep 1/RATE seconds between POSTs).
+post_batch() {
+  local count="$1" prefix="$2"
+  local sleep_between=""
+  if [ -n "$RATE_PER_SEC" ]; then
+    sleep_between="$(awk -v r="$RATE_PER_SEC" 'BEGIN{printf "%.4f", 1/r}')"
+    log "pacing: sleeping ${sleep_between}s between orders"
+  fi
+  local i
+  for i in $(seq 1 "$count"); do
+    post_order "${prefix}${i}" || log "  warn: POST order ${prefix}${i} failed"
+    [ -n "$sleep_between" ] && sleep "$sleep_between"
+  done
+}
+
+# Block until no new metric row lands in [since, now) for $DRAIN_IDLE_SEC
+# consecutive seconds, or $DRAIN_TIMEOUT_SEC elapses. Sets WAIT_DRAINED=1 on a
+# clean drain, 0 on timeout. $1=since-utc  $2=log label
+WAIT_DRAINED=0
+wait_for_drain() {
+  local since="$1" label="${2:-drain}"
+  local q="SELECT COUNT(*) FROM metrics.metrics WHERE started_at >= '$since'::timestamptz"
+  local prev="-1" unchanged=0 deadline current
+  deadline=$(( $(date +%s) + DRAIN_TIMEOUT_SEC ))
+  WAIT_DRAINED=0
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    current="$(pg_count "$q")"; current="${current:-0}"
+    if [ "$current" = "$prev" ]; then
+      unchanged=$(( unchanged + 1 ))
+    else
+      log "  [$label] metric rows: $current"
+      unchanged=0
+    fi
+    prev="$current"
+    if [ "$unchanged" -ge "$DRAIN_IDLE_SEC" ]; then WAIT_DRAINED=1; break; fi
+    sleep 1
+  done
+}
+
+# ---- Warmup (discarded) ----------------------------------------------------
+# Warm JIT, EF Core query compilation, and connection pools so the measured
+# batch reflects steady state rather than cold-start cost. Warmup runs with
+# chaos disabled and starts before run_start_utc, so its metric rows fall
+# outside the measurement window and are excluded automatically. This controls
+# the cold-service confound flagged in
+# docs/research/experimental-design-summary.md (internal validity).
+
 reset_chaos
+
+if [ "$WARMUP_ORDERS" -gt 0 ]; then
+  section "warmup: posting $WARMUP_ORDERS orders (discarded)"
+  WARMUP_START_UTC="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
+  post_batch "$WARMUP_ORDERS" "warmup-${RUN_TAG}-"
+  log "warmup posted; draining before the measured window opens"
+  wait_for_drain "$WARMUP_START_UTC" "warmup"
+  log "cooldown ${COOLDOWN_SEC}s before measuring"
+  sleep "$COOLDOWN_SEC"
+fi
+
+# ---- Enable target scenario ------------------------------------------------
+
 if [ "$SCENARIO" != "none" ]; then
   log "enabling scenario: $SCENARIO with params=$PARAMS"
   chaos_set "$SCENARIO" true "$PARAMS" \
@@ -148,56 +230,16 @@ log "run_start_utc = $RUN_START_UTC"
 # ---- Drive orders ----------------------------------------------------------
 
 section "posting $ORDERS orders"
-
-post_order() {
-  local i="$1"
-  curl -fsS -X POST -H 'Content-Type: application/json' \
-    -d "{\"customerId\":\"cust-${EXPERIMENT_ID}-${RUN_TAG}-${i}\",\"currency\":\"USD\",\"items\":[{\"itemId\":\"item-${i}\",\"name\":\"Item ${i}\",\"quantity\":1,\"unitPriceCents\":900}]}" \
-    "$ORDER_API/orders" >/dev/null
-}
-
-# Optional pacing: sleep 1/RATE seconds between POSTs.
-sleep_between=""
-if [ -n "$RATE_PER_SEC" ]; then
-  sleep_between="$(awk -v r="$RATE_PER_SEC" 'BEGIN{printf "%.4f", 1/r}')"
-  log "pacing: sleeping ${sleep_between}s between orders"
-fi
-
 post_start_epoch="$(date +%s)"
-for i in $(seq 1 "$ORDERS"); do
-  post_order "$i" || log "  warn: POST order $i failed"
-  [ -n "$sleep_between" ] && sleep "$sleep_between"
-done
+post_batch "$ORDERS" ""
 post_end_epoch="$(date +%s)"
 log "posted $ORDERS orders in $(( post_end_epoch - post_start_epoch ))s"
 
 # ---- Wait for drain --------------------------------------------------------
 
 section "waiting for pipeline to drain"
-
-window_clause="started_at >= '$RUN_START_UTC'::timestamptz"
-count_query="SELECT COUNT(*) FROM metrics.metrics WHERE $window_clause"
-
-prev_count="-1"
-unchanged_for=0
-deadline=$(( $(date +%s) + DRAIN_TIMEOUT_SEC ))
-drained=0
-while [ "$(date +%s)" -lt "$deadline" ]; do
-  current="$(pg_count "$count_query")"
-  current="${current:-0}"
-  if [ "$current" = "$prev_count" ]; then
-    unchanged_for=$(( unchanged_for + 1 ))
-  else
-    log "  metric rows: $current"
-    unchanged_for=0
-  fi
-  prev_count="$current"
-  if [ "$unchanged_for" -ge "$DRAIN_IDLE_SEC" ]; then
-    drained=1
-    break
-  fi
-  sleep 1
-done
+wait_for_drain "$RUN_START_UTC" "measure"
+drained="$WAIT_DRAINED"
 
 RUN_END_UTC="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
 log "run_end_utc   = $RUN_END_UTC"

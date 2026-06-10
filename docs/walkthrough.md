@@ -493,8 +493,9 @@ Each metric-writing stage (payment, kitchen, delivery) now persists a row to
 `metrics.metrics` per order (DOG-51), and `scripts/run-experiment.sh` drives a
 labelled experiment end-to-end and dumps a per-run CSV + summary (DOG-52). The
 **happy-path baseline** has been captured (DOG-53) — 50 orders, no chaos, 100%
-success, per-stage avg processing of payment ≈ 254ms / kitchen ≈ 409ms /
-delivery ≈ 582ms. See [`experiments/exp1-baseline.md`](experiments/exp1-baseline.md);
+success, per-stage avg processing of payment ≈ 242ms / kitchen ≈ 373ms /
+delivery ≈ 523ms (measured warm, after a discarded warmup batch). See
+[`experiments/exp1-baseline.md`](experiments/exp1-baseline.md);
 it is the control for the chaos experiments (DOG-54..DOG-57).
 
 ---
