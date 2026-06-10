@@ -498,6 +498,15 @@ delivery ≈ 523ms (measured warm, after a discarded warmup batch). See
 [`experiments/exp1-baseline.md`](experiments/exp1-baseline.md);
 it is the control for the chaos experiments (DOG-54..DOG-57).
 
+The first chaos experiment, **payment delay** (DOG-54), is also done — 50 orders
+with `delayed_payment` @ 5000ms. Payment absorbs the full delay (avg 5225ms,
++≈5s) while kitchen/delivery are unchanged, so the fault is well-isolated. It is
+a pure latency fault: 100% success, 0 retries, 0 DLQ — it does **not** exercise
+the retry/DLQ path (only failure faults do). Counter-intuitively, end-to-end
+latency *dropped* vs baseline (avg 6.1s vs 8.0s, p95 6.4s vs 13.9s) because the
+5s delay paces the burst and removes downstream queue contention. See
+[`experiments/exp2-payment-delay.md`](experiments/exp2-payment-delay.md).
+
 ---
 
 ## 7. Known limitations (intentional for M1)
