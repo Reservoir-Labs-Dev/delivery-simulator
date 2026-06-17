@@ -2,6 +2,7 @@ using DeliveryService.Chaos;
 using DeliveryService.Consumer;
 using DeliveryService.Data;
 using DeliveryService.Handlers;
+using DeliveryService.Recovery;
 using DeliveryService.Simulation;
 using Microsoft.EntityFrameworkCore;
 using Reservoir.BuildingBlocks.Messaging;
@@ -56,6 +57,9 @@ builder.Services.AddSingleton<IDeliverySimulator>(sp => new ChaosAwareDeliverySi
     sp.GetRequiredService<ILogger<ChaosAwareDeliverySimulator>>()));
 builder.Services.AddScoped<OrderReadyHandler>();
 
+// DOG-134 recovery use case (drains delivery.dlq on demand).
+builder.Services.AddSingleton<DlqReplayHandler>();
+
 builder.Services.AddHostedService<DeliveryConsumer>();
 
 var app = builder.Build();
@@ -93,6 +97,13 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "delivery" }));
+
+// DOG-134 — recovery endpoint. Drains delivery.dlq and replays each message
+// back onto orders.exchange/order.ready so a now-healed consumer reprocesses
+// it. Idempotent (preserves the original MessageId), so safe to call repeatedly.
+// Wiring lives in DlqReplayHandler; this is just the route.
+app.MapPost("/admin/dlq/replay", (DlqReplayHandler handler) =>
+    Results.Ok(new { service = "delivery", dlq = handler.DeadLetterQueue, replayed = handler.Replay() }));
 
 app.Run();
 

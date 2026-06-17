@@ -527,7 +527,18 @@ RabbitMQ). This is the "contain + preserve" half of resilience; **rescue** — t
   (isolation holds) and only the `p⁴` tail reaching the DLQ. See
   [`experiments/exp6-partial-rescue.md`](experiments/exp6-partial-rescue.md).
 
-The "recover" half — replaying `delivery.dlq` once the fault heals — is DOG-134.
+- **Recover (DOG-134).** A `POST /admin/dlq/replay` endpoint on the delivery
+  service (route in `Program.cs`, wiring in
+  [`DlqReplayHandler`](../services/delivery/Recovery/DlqReplayHandler.cs)) drains
+  `delivery.dlq` via the shared
+  [`DlqReplayer`](../shared/Reservoir.BuildingBlocks/Messaging/DlqReplayer.cs) and
+  republishes each message to `orders.exchange`/`order.ready` so a now-healed
+  consumer reprocesses it. Replay is **zero-loss** (publisher-confirm before the
+  DLQ ack) and **idempotent** (preserves the original `MessageId`, drops the
+  retry-count header for a fresh budget). Measured in
+  [`experiments/exp7-recovery.md`](experiments/exp7-recovery.md): 50 dead-lettered
+  → 50 replayed → **50 recovered (100%, zero loss)**, DLQ drained to 0, and
+  MTTR ≈ 27s to re-drive the backlog at baseline per-order latency.
 
 See also [`experiments/exp3-delivery-dlq.md`](experiments/exp3-delivery-dlq.md).
 
