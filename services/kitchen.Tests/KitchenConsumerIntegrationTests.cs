@@ -99,8 +99,13 @@ public class KitchenConsumerIntegrationTests
             {
                 services.AddLogging(b => b.AddDebug().SetMinimumLevel(LogLevel.Warning));
 
+                // Name fixed once per host: AddDbContext options are scoped, so a
+                // Guid.NewGuid() *inside* the lambda would mint a different in-memory
+                // database per DI scope — the consumer's writes would then be invisible
+                // to the test's query scope.
+                var dbName = $"kitchen-{Guid.NewGuid()}";
                 services.AddDbContext<KitchenDbContext>(opt =>
-                    opt.UseInMemoryDatabase($"kitchen-{Guid.NewGuid()}")
+                    opt.UseInMemoryDatabase(dbName)
                        .ConfigureWarnings(w => w.Ignore(
                            Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
 
@@ -134,6 +139,7 @@ public class KitchenConsumerIntegrationTests
                 services.AddSingleton<IKitchenSimulator, KitchenSimulator>();
                 services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
                 services.AddScoped<PaymentSucceededHandler>();
+                services.AddSingleton<Reservoir.BuildingBlocks.Persistence.IMetricsWriter, Reservoir.TestSupport.FakeMetricsWriter>();
                 services.AddHostedService<KitchenConsumer>();
             })
             .Build();
