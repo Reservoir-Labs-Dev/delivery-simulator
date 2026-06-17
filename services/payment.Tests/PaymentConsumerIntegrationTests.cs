@@ -100,8 +100,13 @@ public class PaymentConsumerIntegrationTests
             {
                 services.AddLogging(b => b.AddDebug().SetMinimumLevel(LogLevel.Warning));
 
+                // Name fixed once per host: AddDbContext options are scoped, so a
+                // Guid.NewGuid() *inside* the lambda would mint a different in-memory
+                // database per DI scope — the consumer's writes would then be invisible
+                // to the test's query scope.
+                var dbName = $"payments-{Guid.NewGuid()}";
                 services.AddDbContext<PaymentsDbContext>(opt =>
-                    opt.UseInMemoryDatabase($"payments-{Guid.NewGuid()}")
+                    opt.UseInMemoryDatabase(dbName)
                        .ConfigureWarnings(w => w.Ignore(
                            Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
 
@@ -136,6 +141,7 @@ public class PaymentConsumerIntegrationTests
                 services.AddSingleton<IPaymentSimulator, PaymentSimulator>();
                 services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
                 services.AddScoped<OrderCreatedHandler>();
+                services.AddSingleton<Reservoir.BuildingBlocks.Persistence.IMetricsWriter, Reservoir.TestSupport.FakeMetricsWriter>();
                 services.AddHostedService<PaymentConsumer>();
             })
             .Build();

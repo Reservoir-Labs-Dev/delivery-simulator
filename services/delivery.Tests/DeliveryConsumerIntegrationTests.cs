@@ -99,8 +99,13 @@ public class DeliveryConsumerIntegrationTests
             {
                 services.AddLogging(b => b.AddDebug().SetMinimumLevel(LogLevel.Warning));
 
+                // Name fixed once per host: AddDbContext options are scoped, so a
+                // Guid.NewGuid() *inside* the lambda would mint a different in-memory
+                // database per DI scope — the consumer's writes would then be invisible
+                // to the test's query scope.
+                var dbName = $"delivery-{Guid.NewGuid()}";
                 services.AddDbContext<DeliveryDbContext>(opt =>
-                    opt.UseInMemoryDatabase($"delivery-{Guid.NewGuid()}")
+                    opt.UseInMemoryDatabase(dbName)
                        .ConfigureWarnings(w => w.Ignore(
                            Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
 
@@ -135,6 +140,7 @@ public class DeliveryConsumerIntegrationTests
                 services.AddSingleton<IDeliverySimulator, DeliverySimulator>();
                 services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
                 services.AddScoped<OrderReadyHandler>();
+                services.AddSingleton<Reservoir.BuildingBlocks.Persistence.IMetricsWriter, Reservoir.TestSupport.FakeMetricsWriter>();
                 services.AddHostedService<DeliveryConsumer>();
             })
             .Build();
