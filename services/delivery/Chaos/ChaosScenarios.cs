@@ -6,7 +6,10 @@ namespace DeliveryService.Chaos;
 /// </summary>
 public static class ChaosScenarios
 {
-    /// <summary>DOG-45 — when enabled, every delivery throws <see cref="SimulatedDeliveryException"/>,
-    /// forcing the consumer through 3 retries → DLQ.</summary>
+    /// <summary>DOG-45 / DOG-133 — when enabled, each delivery attempt throws
+    /// <see cref="SimulatedDeliveryException"/> with probability
+    /// <c>params.fail_probability</c> (default 1.0). At 1.0 every order is forced
+    /// through 3 retries → DLQ (total outage); below 1.0 retries can rescue an
+    /// order that failed an earlier attempt.</summary>
     public const string DeliveryFailureLoop = "delivery_failure_loop";
 }

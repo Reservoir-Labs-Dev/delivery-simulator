@@ -514,10 +514,22 @@ fault-tolerance properties rather than the trivial "it failed": **isolation**
 propagate), **bounded retry** (every order makes exactly 4 attempts with 1/2/4s
 backoff, ~7s, then stops — no infinite loop), and **zero loss** (all 50
 undeliverable orders preserved in `delivery.dlq`, cross-checked against
-RabbitMQ). This is the "contain + preserve" half of resilience; the "rescue"
-(DOG-133, partial failure → retry rescue rate) and "recover" (DOG-134, heal +
-drain DLQ) halves are queued as follow-up experiments. See
-[`experiments/exp3-delivery-dlq.md`](experiments/exp3-delivery-dlq.md).
+RabbitMQ). This is the "contain + preserve" half of resilience; **rescue** — the
+"tolerate" half — is now measured (DOG-133):
+
+- **Rescue (DOG-133).** `delivery_failure_loop` takes a `fail_probability` param
+  (default 1.0 = the DOG-55 total outage). Below 1.0 each delivery attempt rolls
+  independently in [`ChaosAwareDeliverySimulator`](../services/delivery/Chaos/ChaosAwareDeliverySimulator.cs),
+  so an order that fails an early attempt can still succeed on a retry — the
+  retry-rescue population. Sweeping `p` ∈ {0.25, 0.5, 0.75} traces a
+  graceful-degradation curve: delivery **100% → 94% → 82%**, retry-rescue rate
+  **100% → 87.5% → 75.7%**, with payment and kitchen at 100% throughout
+  (isolation holds) and only the `p⁴` tail reaching the DLQ. See
+  [`experiments/exp6-partial-rescue.md`](experiments/exp6-partial-rescue.md).
+
+The "recover" half — replaying `delivery.dlq` once the fault heals — is DOG-134.
+
+See also [`experiments/exp3-delivery-dlq.md`](experiments/exp3-delivery-dlq.md).
 
 The third chaos experiment, **duplicate storm** (DOG-56), publishes every
 `order.created` 3× with the same `EventId` (`duplicate_events`, count=3),
